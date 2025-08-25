@@ -114,3 +114,7 @@ El token se obtiene al registrarse o iniciar sesión.
 #### `PUT /ai-profile`
 - **Descripción:** Actualiza la configuración personal de la IA del usuario.
 - **Body:** `{ "aiBotName": "string", "aiBotPrompt": "string" }`
+
+
+# RENDER URL
+- https://jello-backend.onrender.com

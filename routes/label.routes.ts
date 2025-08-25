@@ -1,7 +1,8 @@
-const express = require('express');
-const router = express.Router();
-const labelController = require('../controllers/label.controller');
-const authMiddleware = require('../middleware/auth.middleware');
+import { Router } from 'express';
+import * as labelController from '../controllers/label.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
 
 router.use(authMiddleware);
 
@@ -13,4 +14,4 @@ router.put('/labels/:labelId', labelController.updateLabel);
 
 router.delete('/labels/:labelId', labelController.deleteLabel);
 
-module.exports = router;
+export default router;
