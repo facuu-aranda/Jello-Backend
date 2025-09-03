@@ -6,15 +6,14 @@ import nodemailer from 'nodemailer';
 
 export const register = async (req: Request, res: Response) => {
   try {
-    // Le decimos a TypeScript qué forma tiene el cuerpo de la petición.
-    const { name, email, password, role } = req.body as IUser;
+    const { name, email, password } = req.body as IUser;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'El correo ya está en uso' });
     }
 
-    const newUser = new User({ name, email, password, role });
+    const newUser = new User({ name, email, password });
     await newUser.save();
 
     res.status(201).json({ message: 'Usuario registrado exitosamente' });
@@ -37,7 +36,7 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ message: 'Credenciales inválidas' });
     }
 
-    const payload = { id: user._id, name: user.name, role: user.role };
+    const payload = { id: user._id, name: user.name };
     const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '1h' });
 
     res.json({ token, user: payload });

@@ -15,4 +15,6 @@ router.put('/:taskId/subtasks/:subtaskId', taskController.updateSubtask);
 
 router.delete('/:taskId/subtasks/:subtaskId', taskController.deleteSubtask);
 
+router.get('/my-tasks', taskController.getAssignedTasks);
+
 export default router;

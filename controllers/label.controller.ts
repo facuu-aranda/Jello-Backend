@@ -1,11 +1,15 @@
+// controllers/label.controller.ts
 import { Request, Response } from 'express';
 import Label from '../models/Label.model';
 import Project from '../models/Project.model';
 import Task from '../models/Task.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
 
+// Función de ayuda para verificar la membresía
 const checkMembership = async (projectId: string, userId: string) => {
     const project = await Project.findById(projectId);
-    if (!project || !project.members.includes(userId as any)) {
+    // CORRECCIÓN: La comprobación ahora busca dentro del array de objetos 'members'
+    if (!project || !project.members.some(m => (m.user as any).equals(userId))) {
         return null;
     }
     return project;
@@ -15,8 +19,9 @@ export const createLabel = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
         const { name, color } = req.body;
+        const user = req.user as IJwtPayload;
 
-        const project = await checkMembership(projectId, req.user!.id);
+        const project = await checkMembership(projectId, user.id);
         if (!project) return res.status(403).json({ message: "Acción no autorizada." });
 
         const newLabel = new Label({ name, color, project: projectId });
@@ -30,8 +35,9 @@ export const createLabel = async (req: Request, res: Response) => {
 export const getLabelsForProject = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
+        const user = req.user as IJwtPayload;
         
-        const project = await checkMembership(projectId, req.user!.id);
+        const project = await checkMembership(projectId, user.id);
         if (!project) return res.status(403).json({ message: "Acción no autorizada." });
         
         const labels = await Label.find({ project: projectId });
@@ -45,11 +51,12 @@ export const updateLabel = async (req: Request, res: Response) => {
     try {
         const { labelId } = req.params;
         const { name, color } = req.body;
+        const user = req.user as IJwtPayload;
 
         const label = await Label.findById(labelId);
         if (!label) return res.status(404).json({ message: "Etiqueta no encontrada." });
         
-        const project = await checkMembership((label.project as any).toString(), req.user!.id);
+        const project = await checkMembership((label.project as any).toString(), user.id);
         if (!project) return res.status(403).json({ message: "Acción no autorizada." });
 
         const updatedLabel = await Label.findByIdAndUpdate(labelId, { name, color }, { new: true });
@@ -62,11 +69,12 @@ export const updateLabel = async (req: Request, res: Response) => {
 export const deleteLabel = async (req: Request, res: Response) => {
     try {
         const { labelId } = req.params;
+        const user = req.user as IJwtPayload;
 
         const label = await Label.findById(labelId);
         if (!label) return res.status(404).json({ message: "Etiqueta no encontrada." });
 
-        const project = await checkMembership((label.project as any).toString(), req.user!.id);
+        const project = await checkMembership((label.project as any).toString(), user.id);
         if (!project) return res.status(403).json({ message: "Acción no autorizada." });
         
         await Label.findByIdAndDelete(labelId);

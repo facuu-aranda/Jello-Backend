@@ -8,7 +8,10 @@ const router = Router();
 router.use(authMiddleware);
 
 // GET /api/projects -> Obtener los proyectos del usuario logueado
-router.get('/', projectController.getProjectsForUser);
+
+router.get('/', projectController.getAllUserProjects); 
+router.get('/owned', projectController.getOwnedProjects);
+router.get('/working', projectController.getWorkingProjects);
 
 // POST /api/projects -> Crear un nuevo proyecto
 router.post('/', projectController.createProject);

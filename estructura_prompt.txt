@@ -8,36 +8,42 @@ Estoy trabajando en el siguiente proyecto:
 📂 **Estructura del proyecto:**  
 - 📁 backend
   - 📄 .env
-  - 📄 API_DOCUMENTATION.md
-  - 📄 index.js
+  - 📄 index.ts
   - 📄 package-lock.json
   - 📄 package.json
+  - 📄 tsconfig.json
   - 📁 config
-    - 📄 cloudinary.config.js
+    - 📄 cloudinary.config.ts
+    - 📄 passport.config.ts
   - 📁 controllers
-    - 📄 auth.controller.js
-    - 📄 comment.controller.js
-    - 📄 label.controller.js
-    - 📄 project.controller.js
-    - 📄 task.controller.js
-    - 📄 user.controller.js
+    - 📄 auth.controller.ts
+    - 📄 comment.controller.ts
+    - 📄 label.controller.ts
+    - 📄 notification.controller.ts
+    - 📄 personalTodo.controller.ts
+    - 📄 project.controller.ts
+    - 📄 task.controller.ts
+    - 📄 user.controller.ts
   - 📁 middleware
-    - 📄 auth.middleware.js
+    - 📄 auth.middleware.ts
   - 📁 models
-    - 📄 Activity.model.js
-    - 📄 Comment.model.js
-    - 📄 Label.model.js
-    - 📄 Notification.model.js
-    - 📄 Project.model.js
-    - 📄 Task.model.js
-    - 📄 User.model.js
+    - 📄 Activity.model.ts
+    - 📄 Comment.model.ts
+    - 📄 Label.model.ts
+    - 📄 Notification.model.ts
+    - 📄 PersonalTodo.model.ts
+    - 📄 Project.model.ts
+    - 📄 Task.model.ts
+    - 📄 User.model.ts
   - 📁 routes
-    - 📄 auth.routes.js
-    - 📄 label.routes.js
-    - 📄 project.routes.js
-    - 📄 task.routes.js
-    - 📄 upload.routes.js
-    - 📄 user.routes.js
+    - 📄 auth.routes.ts
+    - 📄 label.routes.ts
+    - 📄 notification.routes.ts
+    - 📄 personalTodo.routes.ts
+    - 📄 project.routes.ts
+    - 📄 task.routes.ts
+    - 📄 upload.routes.ts
+    - 📄 user.routes.ts
 
 Quiero que me vayas pidiendo todos los archivos del proyecto uno por uno para que los puedas guardar en tu contexto. Una vez los tengas, podremos comenzar a trabajar sobre ellos con mayor precisión.
 

@@ -6,6 +6,11 @@ interface IKanbanColumn {
   color: string;
 }
 
+interface IProjectMember {
+  user: IUser['_id'];
+  role: 'admin' | 'member';
+}
+
 export interface IProject extends Document {
   name: string;
   description?: string;
@@ -14,8 +19,8 @@ export interface IProject extends Document {
   startDate: Date;
   estimatedEndDate?: Date;
   endDate?: Date;
-  owner: IUser['_id']; 
-  members: IUser['_id'][]; 
+  owner: IUser['_id'];
+  members: IProjectMember[];
   kanbanColumns: IKanbanColumn[];
   allowWorkerEstimation: boolean;
   aiBotName: string;
@@ -30,8 +35,15 @@ const ProjectSchema: Schema<IProject> = new Schema({
   startDate: { type: Date, default: Date.now },
   estimatedEndDate: { type: Date },
   endDate: { type: Date, default: null },
-  owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  members: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+   owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  members: [{
+    user: { type: Schema.Types.ObjectId, ref: 'User' },
+    role: {
+      type: String,
+      enum: ['admin', 'member'],
+      default: 'member'
+    }
+  }],
   kanbanColumns: {
     type: [{
       name: { type: String, required: true },
