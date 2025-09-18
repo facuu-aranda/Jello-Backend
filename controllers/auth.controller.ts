@@ -24,7 +24,7 @@ export const register = async (req: Request, res: Response) => {
 
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
     const user = await User.findOne({ email }).select('+password');
 
     if (!user || !user.password) {
@@ -37,7 +37,10 @@ export const login = async (req: Request, res: Response) => {
     }
 
     const payload = { id: user._id, name: user.name };
-    const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+
+    const expiresIn = rememberMe ? '7d' : '48h';
+
+    const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: expiresIn });
 
     res.json({ token, user: payload });
   } catch (error) {
