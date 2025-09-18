@@ -224,3 +224,36 @@ export const getProjectContextForAI = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
+
+export const requestToJoinProject = async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const sender = req.user as IJwtPayload; // El usuario que hace la solicitud
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Proyecto no encontrado.' });
+    }
+
+    // Verificar que el usuario no sea ya un miembro
+    if (project.members.some(m => (m.user as any).equals(sender.id))) {
+      return res.status(400).json({ message: 'Ya eres miembro de este proyecto.' });
+    }
+
+    // Crear una notificación para el dueño del proyecto
+    const newNotification = new Notification({
+      recipient: project.owner,
+      sender: sender.id,
+      type: 'collaboration_request',
+      status: 'pending',
+      project: projectId,
+      text: `"${sender.name}" ha solicitado unirse a tu proyecto "${project.name}".`,
+      link: `/project/${projectId}/settings/members` // Link a la página de miembros
+    });
+    await newNotification.save();
+
+    res.status(201).json({ message: 'Solicitud enviada con éxito.' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};

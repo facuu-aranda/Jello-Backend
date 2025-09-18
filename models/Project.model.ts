@@ -14,7 +14,8 @@ interface IProjectMember {
 export interface IProject extends Document {
   name: string;
   description?: string;
-  coverImage?: string;
+  avatarUrl?: string; 
+  bannerUrl?: string; 
   techStack: string[];
   startDate: Date;
   estimatedEndDate?: Date;
@@ -30,7 +31,8 @@ export interface IProject extends Document {
 const ProjectSchema: Schema<IProject> = new Schema({
   name: { type: String, required: true, trim: true },
   description: { type: String },
-  coverImage: { type: String, default: null },
+  avatarUrl: { type: String, default: null },
+  bannerUrl: { type: String, default: null },
   techStack: [{ type: String, trim: true }],
   startDate: { type: Date, default: Date.now },
   estimatedEndDate: { type: Date },

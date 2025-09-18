@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import Task from '../models/Task.model';
 import Project from '../models/Project.model';
 import Activity from '../models/Activity.model';
+import User from '../models/User.model';
+import { createActivityLog } from '../services/activity.service';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
 const getTypedUser = (req: Request): IJwtPayload => {
@@ -13,10 +15,11 @@ export const createTask = async (req: Request, res: Response) => {
   try {
     const { projectId } = req.params;
     const { title, description } = req.body;
-    const userId = getTypedUser(req)?.id;
+    const user = getTypedUser(req);
+    if (!user) return res.status(401).json({ message: 'Usuario no autenticado.' });
 
     const project = await Project.findById(projectId);
-    if (!project || !project.members.some(m => (m.user as any).equals(userId))) {
+    if (!project || !project.members.some(m => (m.user as any).equals(user.id))) {
       return res.status(403).json({ message: 'Acción no autorizada.' });
     }
 
@@ -25,8 +28,16 @@ export const createTask = async (req: Request, res: Response) => {
       description,
       project: projectId,
     });
-
     await newTask.save();
+
+    await createActivityLog({
+      type: 'task_created',
+      user: user.id,
+      project: projectId,
+      task: (newTask._id as any).toString(), // <-- CORRECCIÓN 1
+      text: `${user.name} ha creado la tarea "${newTask.title}".` // <-- CORRECCIÓN 2
+    });
+
     res.status(201).json(newTask);
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
@@ -106,12 +117,16 @@ export const updateTask = async (req: Request, res: Response) => {
       updateData.completionDate = null;
     }
 
+    
     if (updateData.status && updateData.status !== task.status) {
-      await new Activity({
-        text: `${user.name} movió la tarea de "${task.status}" a "${updateData.status}".`,
-        user: user.id,
-        task: taskId
-      }).save();
+        await createActivityLog({
+            type: 'task_status_changed',
+            user: user.id,
+            project: project._id,
+            task: taskId,
+            text: `${user.name} movió la tarea "${task.title}" de "${task.status}" a "${updateData.status}".`,
+            meta: { from: task.status, to: updateData.status }
+        });
     }
 
     const updatedTask = await Task.findByIdAndUpdate(taskId, updateData, { new: true });

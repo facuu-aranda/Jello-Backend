@@ -11,7 +11,10 @@ import uploadRoutes from './routes/upload.routes';
 import userRoutes from './routes/user.routes';
 import notificationRoutes from './routes/notification.routes';
 import passport from 'passport';
+import todoRoutes from './routes/todo.routes';
 import './config/passport.config';
+import activityRoutes from './routes/activity.routes';
+import searchRoutes from './routes/search.routes';
 
 const app = express();
 
@@ -36,6 +39,9 @@ app.use('/api', labelRoutes);
 app.use('/api', uploadRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/todos', todoRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/search', searchRoutes); 
 
 app.get('/', (req: Request, res: Response) => {
   res.send('¡La API está funcionando correctamente con TypeScript!');

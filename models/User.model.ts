@@ -8,6 +8,11 @@ export interface IUser extends Document {
   googleId?: string;
   password?: string;
   avatarUrl?: string;
+  bannerUrl?: string;
+  bio?: string;
+  jobTitle?: string;
+  timezone?: string;
+  skills: string[];
   aiBotName: string;
   aiBotPrompt: string;
   passwordResetToken?: string;
@@ -23,6 +28,12 @@ const UserSchema: Schema<IUser> = new Schema({
   googleId: { type: String, unique: true, sparse: true },
   password: { type: String, required: false, select: false },
   avatarUrl: { type: String, default: '/public/assets/Jelli-avatar.png' },
+  bannerUrl: { type: String, default: null },
+  bio: { type: String, default: '' },
+  jobTitle: { type: String, default: '' },
+  timezone: { type: String, default: '' },
+  skills: { type: [String], default: [] },
+
   aiBotName: { type: String, default: 'Mi Asistente Personal' },
   aiBotPrompt: { type: String, default: 'Eres un asistente personal experto en productividad.' },
   passwordResetToken: String,

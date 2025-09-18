@@ -7,7 +7,7 @@ import { ITask } from './Task.model';
 export interface INotification extends Document {
   recipient: IUser['_id']; 
     sender: IUser['_id'];    
-  type: 'invitation' | 'mention' | 'comment';
+  type: 'invitation' | 'mention' | 'comment' | 'collaboration_request';
   status: 'pending' | 'accepted' | 'declined' | 'read' | 'unread';
   project?: IProject['_id']; 
   task?: ITask['_id'];  
@@ -20,7 +20,7 @@ const NotificationSchema: Schema<INotification> = new Schema({
   sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   type: {
     type: String,
-    enum: ['invitation', 'mention', 'comment'],
+    enum: ['invitation', 'mention', 'comment', 'collaboration_request'], // <-- Añade el nuevo tipo
     required: true
   },
   status: {

@@ -25,17 +25,30 @@ export const updateAiProfile = async (req: Request, res: Response) => {
   }
 };
 
+
 export const updateProfile = async (req: Request, res: Response) => {
   try {
-    const { name, avatarUrl } = req.body;
     const userId = (req.user as IJwtPayload).id;
+    
+    // Obtenemos los nuevos campos del body de la petición
+    const { name, avatarUrl, bannerUrl, bio, jobTitle, timezone, skills } = req.body;
 
-    const updateData: { name?: string; avatarUrl?: string } = {};
+    // Construimos el objeto de actualización solo con los campos que se envían
+    const updateData: { [key: string]: any } = {};
     if (name) updateData.name = name;
     if (avatarUrl) updateData.avatarUrl = avatarUrl;
+    if (bannerUrl) updateData.bannerUrl = bannerUrl;
+    if (bio) updateData.bio = bio;
+    if (jobTitle) updateData.jobTitle = jobTitle;
+    if (timezone) updateData.timezone = timezone;
+    if (skills) updateData.skills = skills; // skills debe ser un array de strings
 
     const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true })
-        .select('-password');
+        .select('-password'); // Excluimos el password de la respuesta
+
+    if (!updatedUser) {
+        return res.status(404).json({ message: "Usuario no encontrado." });
+    }
 
     res.json(updatedUser);
   } catch (error) {

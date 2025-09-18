@@ -3,6 +3,8 @@ import { Request, Response } from 'express';
 import Notification from '../models/Notification.model';
 import Project from '../models/Project.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
+import { createActivityLog } from '../services/activity.service';
+import User from '../models/User.model';
 
 export const getNotifications = async (req: Request, res: Response) => {
     try {
@@ -18,28 +20,36 @@ export const getNotifications = async (req: Request, res: Response) => {
     }
 };
 
-export const respondToInvitation = async (req: Request, res: Response) => {
+export const respondToNotification = async (req: Request, res: Response) => {
     try {
         const { notificationId } = req.params;
-        const { response } = req.body; 
-        const userId = (req.user as IJwtPayload).id;
+        const { response } = req.body; // 'accepted' o 'declined'
+        const currentUser = req.user as IJwtPayload;
 
         const notification = await Notification.findById(notificationId);
         
-        if (!notification || (notification.recipient as any).toString() !== userId) {
+        // La notificación debe existir y el usuario actual debe ser el destinatario
+        if (!notification || (notification.recipient as any).toString() !== currentUser.id) {
             return res.status(403).json({ message: "Acción no autorizada." });
         }
-        if (notification.type !== 'invitation' || notification.status !== 'pending') {
-            return res.status(400).json({ message: "Esta invitación ya no es válida." });
+        if (notification.status !== 'pending') {
+            return res.status(400).json({ message: "Esta notificación ya ha sido respondida." });
         }
 
         if (response === 'accepted') {
-            const projectId = notification.project;
-            if (!projectId) return res.status(400).json({ message: "Invitación sin proyecto válido." });
+            // Lógica para añadir al miembro correcto al proyecto
+            let userToadd;
+            if (notification.type === 'invitation') {
+                userToadd = notification.recipient; // Si me invitan, me añaden a mí
+            } else if (notification.type === 'collaboration_request') {
+                userToadd = notification.sender; // Si acepto una solicitud, añado a quien la envió
+            }
 
-            await Project.findByIdAndUpdate(projectId, {
-                $addToSet: { members: { user: userId, role: 'member' } }
-            });
+            if (userToadd && notification.project) {
+                await Project.findByIdAndUpdate(notification.project, {
+                    $addToSet: { members: { user: userToadd, role: 'member' } }
+                });
+            }
             notification.status = 'accepted';
         } else {
             notification.status = 'declined';

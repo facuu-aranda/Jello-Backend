@@ -9,7 +9,9 @@ router.get('/', notificationController.getNotifications);
 
 router.put('/read', notificationController.markAsRead);
 
-router.put('/:notificationId/respond', notificationController.respondToInvitation);
+// PUT /api/notifications/:notificationId/respond -> Responder a una notificación
+router.put('/:notificationId/respond', notificationController.respondToNotification); // <-- CAMBIO DE NOMBRE
+
 
 router.delete('/:notificationId', notificationController.deleteNotification);
 

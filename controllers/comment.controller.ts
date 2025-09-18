@@ -1,16 +1,16 @@
-// controllers/comment.controller.ts
 import { Request, Response } from 'express';
 import Comment from '../models/Comment.model';
 import Task from '../models/Task.model';
 import User from '../models/User.model';
 import Notification from '../models/Notification.model';
-import { IJwtPayload } from '../middleware/auth.middleware'; // <-- IMPORTAMOS LA INTERFAZ
+import { createActivityLog } from '../services/activity.service';
+import { IJwtPayload } from '../middleware/auth.middleware';
 
 export const addComment = async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
     const { content, attachmentUrl } = req.body;
-    const author = req.user as IJwtPayload; // <-- Usamos el tipo correcto
+    const author = req.user as IJwtPayload;
 
     if (!author) {
       return res.status(401).json({ message: 'Usuario no autenticado.' });
@@ -24,10 +24,19 @@ export const addComment = async (req: Request, res: Response) => {
     const newComment = new Comment({
       content,
       attachmentUrl,
-      author: author.id, // Ahora .id es válido
+      author: author.id,
       task: taskId
     });
     await newComment.save();
+
+    await createActivityLog({
+        type: 'comment_added',
+        user: author.id,
+        // --- CORRECCIÓN AQUÍ ---
+        project: (task.project as any)._id.toString(),
+        task: taskId,
+        text: `${author.name} ha comentado en la tarea "${task.title}".`
+    });
 
     // Lógica de Menciones (@mentions)
     const mentions = content.match(/@(\w+)/g);
