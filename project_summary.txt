@@ -1,3 +1,2119 @@
+================================================================================
+INICIO DEL ANÁLISIS DEL PROYECTO (Generado con Node.js)
+================================================================================
+
+Hola, soy un script automatizado. Este archivo contiene la estructura completa y el código fuente del proyecto solicitado.
+
+La primera sección muestra el árbol de directorios y archivos. La segunda sección contiene el contenido de cada archivo.
+
+--------------------------------------------------------------------------------
+SECCIÓN 1: ESTRUCTURA DE ARCHIVOS Y DIRECTORIOS
+--------------------------------------------------------------------------------
+
+Jello-Backend/
+├── config
+│   ├── cloudinary.config.ts
+│   └── passport.config.ts
+├── controllers
+│   ├── activity.controller.ts
+│   ├── assistant.controller.ts
+│   ├── attachment.controller.ts
+│   ├── auth.controller.ts
+│   ├── comment.controller.ts
+│   ├── label.controller.ts
+│   ├── notification.controller.ts
+│   ├── personalTodo.controller.ts
+│   ├── project.controller.ts
+│   ├── search.controller.ts
+│   ├── task.controller.ts
+│   ├── todo.controller.ts
+│   └── user.controller.ts
+├── index.ts
+├── jest.config.js
+├── middleware
+│   └── auth.middleware.ts
+├── models
+│   ├── Activity.model.ts
+│   ├── Comment.model.ts
+│   ├── Label.model.ts
+│   ├── Notification.model.ts
+│   ├── Project.model.ts
+│   ├── Task.model.ts
+│   ├── Todo.model.ts
+│   └── User.model.ts
+├── package-lock.json
+├── package.json
+├── routes
+│   ├── activity.routes.ts
+│   ├── assistant.routes.ts
+│   ├── auth.routes.ts
+│   ├── label.routes.ts
+│   ├── notification.routes.ts
+│   ├── personalTodo.routes.ts
+│   ├── project.routes.ts
+│   ├── search.routes.ts
+│   ├── task.routes.ts
+│   ├── todo.routes.ts
+│   ├── upload.routes.ts
+│   └── user.routes.ts
+├── services
+│   └── activity.service.ts
+├── tests
+│   ├── auth.test.ts
+│   ├── loadEnv.ts
+│   ├── projects.test.ts
+│   ├── setup.ts
+│   └── task&comment.test.ts
+├── tsconfig.json
+├── types
+│   └── express
+│       └── index.d.ts
+└── typescript_errors.txt
+
+
+--------------------------------------------------------------------------------
+SECCIÓN 2: CONTENIDO DE LOS ARCHIVOS
+--------------------------------------------------------------------------------
+
+
+############################## INICIO DEL ARCHIVO: .gitignore ##############################
+
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+/dist
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+############################## FIN DEL ARCHIVO: .gitignore ##################################
+
+############################## INICIO DEL ARCHIVO: config\cloudinary.config.ts ##############################
+
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import multer from 'multer';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'jello-app',
+    allowed_formats: ['jpg', 'png', 'pdf', 'gif']
+  } as { folder: string, allowed_formats: string[] } // Añadimos una aserción de tipo aquí
+});
+
+export default multer({ storage });
+
+############################## FIN DEL ARCHIVO: config\cloudinary.config.ts ##################################
+
+############################## INICIO DEL ARCHIVO: config\passport.config.ts ##############################
+
+
+import passport from 'passport';
+import { Strategy as GoogleStrategy, Profile as GoogleProfile } from 'passport-google-oauth20';
+import { Strategy as GitHubStrategy, Profile as GitHubProfile } from 'passport-github2';
+import { User } from '../models/User.model'; 
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+// --- Estrategia de Google ---
+passport.use(
+  new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      callbackURL: '/api/auth/google/callback',
+    },
+    async (accessToken: string, refreshToken: string, profile: GoogleProfile, done: (error: any, user?: any) => void) => {
+      try {
+        let user = await User.findOne({ googleId: profile.id });
+        if (user) {
+          const payload: IJwtPayload = { id: (user._id as any).toString(), name: user.name };
+          return done(null, payload);
+        }
+
+        user = await User.findOne({ email: profile.emails?.[0].value });
+        if (user) {
+          user.googleId = profile.id;
+          await user.save();
+          const payload: IJwtPayload = { id: (user._id as any).toString(), name: user.name };
+          return done(null, payload);
+        }
+        
+        const newUser = new User({
+            googleId: profile.id,
+            name: profile.displayName,
+            email: profile.emails?.[0].value,
+            avatarUrl: profile.photos?.[0].value,
+        });
+        await newUser.save();
+        const payload: IJwtPayload = { id: (newUser._id as any).toString(), name: newUser.name };
+        return done(null, payload);
+
+      } catch (error) {
+        return done(error, false);
+      }
+    }
+  )
+);
+
+// --- Estrategia de GitHub ---
+passport.use(
+  new GitHubStrategy(
+    {
+      clientID: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      callbackURL: '/api/auth/github/callback',
+      scope: ['user:email'],
+    },
+    async (accessToken: string, refreshToken: string, profile: GitHubProfile, done: (error: any, user?: any) => void) => {
+      try {
+        let user = await User.findOne({ githubId: profile.id });
+        if (user) {
+          const payload: IJwtPayload = { id: (user._id as any).toString(), name: user.name };
+          return done(null, payload);
+        }
+
+        const userEmail = profile.emails?.[0].value;
+        if (userEmail) {
+            user = await User.findOne({ email: userEmail });
+            if (user) {
+                user.githubId = profile.id;
+                await user.save();
+                const payload: IJwtPayload = { id: (user._id as any).toString(), name: user.name };
+                return done(null, payload);
+            }
+        }
+
+        const newUser = new User({
+          githubId: profile.id,
+          name: profile.displayName || profile.username,
+          email: userEmail,
+          avatarUrl: profile.photos?.[0].value,
+        });
+        await newUser.save();
+        const payload: IJwtPayload = { id: (newUser._id as any).toString(), name: newUser.name };
+        return done(null, payload);
+
+      } catch (error) {
+        return done(error as any, false);
+      }
+    }
+  )
+);
+
+############################## FIN DEL ARCHIVO: config\passport.config.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\activity.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Activity } from '../models/Activity.model';
+import { Project } from '../models/Project.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+// GET /api/activity o /api/activity/recent
+export const getRecentActivity = async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as IJwtPayload).id;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 15;
+    const skip = (page - 1) * limit;
+
+    const userProjects = await Project.find({ 'members.user': userId }).select('_id');
+    const projectIds = userProjects.map(p => p._id);
+
+    const activities = await Activity.find({ project: { $in: projectIds } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('user', 'name avatarUrl')
+      .populate('project', 'name')
+      .populate('task', 'title');
+
+    // Mapear al formato esperado por el frontend
+    const formattedActivities = activities.map(act => ({
+      id: act._id,
+      type: act.type,
+      user: act.user,
+      action: act.text.split(' ').slice(1).join(' '), // "ha creado la tarea" -> "creado la tarea"
+      target: (act.task as any)?.title || (act.project as any)?.name,
+      time: act.createdAt,
+      projectId: (act.project as any)._id
+    }));
+
+    res.status(200).json(formattedActivities);
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+  }
+};
+
+############################## FIN DEL ARCHIVO: controllers\activity.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\assistant.controller.ts ##############################
+
+import { Request, Response } from 'express';
+
+// POST /api/assistant/chat
+export const chatWithAssistant = async (req: Request, res: Response) => {
+  try {
+    const { history } = req.body;
+
+    // VALIDACIÓN BÁSICA
+    if (!history || !Array.isArray(history)) {
+      return res.status(400).json({ error: 'El historial es requerido y debe ser un array.' });
+    }
+
+    // --- LÓGICA DEL PLACEHOLDER ---
+    // En una implementación real, aquí llamarías al servicio de IA (ej. Gemini API)
+    // con el 'history' y devolverías la respuesta en streaming.
+    // Por ahora, devolvemos una respuesta simple y fija para que el frontend pueda integrarse.
+
+    const mockResponse = {
+      response: "¡Hola! Soy tu asistente Jello. Por ahora, solo puedo saludarte. ¿En qué te gustaría que te ayudara en el futuro?"
+    };
+
+    // Nota: El frontend espera 'text/event-stream', pero para este placeholder
+    // una respuesta JSON es suficiente para validar la conexión.
+    res.status(200).json(mockResponse);
+
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor del asistente', details: (error as Error).message });
+  }
+};
+
+
+############################## FIN DEL ARCHIVO: controllers\assistant.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\attachment.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Task } from '../models/Task.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+import mongoose from 'mongoose';
+
+// POST /api/tasks/:taskId/attachments
+export const addAttachment = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        const { name, url, size, type } = req.body;
+        const userId = (req.user as IJwtPayload).id;
+
+        const task = await Task.findById(taskId).populate('project');
+        if (!task) {
+            return res.status(404).json({ error: "Tarea no encontrada." });
+        }
+
+        // Verificar que el usuario es miembro del proyecto
+        const project = task.project as any;
+        if (!project.members.some((m: any) => m.user.equals(userId))) {
+            return res.status(403).json({ error: "Acción no autorizada." });
+        }
+
+        const newAttachment = {
+            _id: new mongoose.Types.ObjectId(),
+            name,
+            url,
+            size,
+            type
+        };
+
+        task.attachments.push(newAttachment);
+        await task.save();
+
+        res.status(201).json(newAttachment);
+
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// DELETE /api/tasks/:taskId/attachments/:attachmentId
+export const deleteAttachment = async (req: Request, res: Response) => {
+    try {
+        const { taskId, attachmentId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+
+        const task = await Task.findById(taskId).populate('project');
+        if (!task) {
+            return res.status(404).json({ error: "Tarea no encontrada." });
+        }
+
+        const project = task.project as any;
+        if (!project.members.some((m: any) => m.user.equals(userId))) {
+            return res.status(403).json({ error: "Acción no autorizada." });
+        }
+        
+        task.attachments.pull({ _id: attachmentId });
+        await task.save();
+
+        res.status(204).send();
+
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\attachment.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\auth.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { User, IUser } from '../models/User.model';
+import jwt from 'jsonwebtoken';
+
+// POST /api/auth/register
+export const register = async (req: Request, res: Response) => {
+  try {
+    const { name, email, password } = req.body;
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'El correo ya está en uso' });
+    }
+
+    const newUser = new User({ name, email, password });
+    const savedUser = await newUser.save();
+
+    const payload = { id: savedUser._id, name: savedUser.name };
+    const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '48h' });
+
+    // Devolver UserProfile
+    const userProfile = {
+        id: savedUser._id,
+        name: savedUser.name,
+        email: savedUser.email,
+        avatarUrl: savedUser.avatarUrl,
+        bannerUrl: savedUser.bannerUrl,
+        title: savedUser.jobTitle,
+        bio: savedUser.bio,
+        timezone: savedUser.timezone,
+        skills: savedUser.skills,
+    };
+    
+    res.status(201).json({ token, user: userProfile });
+
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+  }
+};
+
+// POST /api/auth/login
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email, password, rememberMe = false } = req.body;
+    const user = await User.findOne({ email }).select('+password');
+
+    if (!user || !user.password) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Credenciales inválidas' });
+    }
+
+    const payload = { id: user._id, name: user.name };
+    const expiresIn = rememberMe ? '7d' : '48h';
+    const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn });
+
+    const userProfile = {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        bannerUrl: user.bannerUrl,
+        title: user.jobTitle,
+        bio: user.bio,
+        timezone: user.timezone,
+        skills: user.skills,
+    };
+
+    res.json({ token, user: userProfile });
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+  }
+};
+
+############################## FIN DEL ARCHIVO: controllers\auth.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\comment.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Comment } from '../models/Comment.model';
+import { Task } from '../models/Task.model';
+import { User } from '../models/User.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+import { createActivityLog } from '../services/activity.service';
+
+// POST /api/tasks/:taskId/comments
+export const addComment = async (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const { content } = req.body;
+    const author = req.user as IJwtPayload;
+
+    const task = await Task.findById(taskId).populate('project');
+    if (!task) {
+      return res.status(404).json({ error: 'Tarea no encontrada.' });
+    }
+
+    const newComment = new Comment({
+      content,
+      author: author.id,
+      task: taskId
+    });
+    await newComment.save();
+    
+    // Registrar actividad
+    const project = task.project as any;
+    await createActivityLog({
+        type: 'comment_added',
+        user: author.id,
+        project: project._id.toString(),
+        task: taskId,
+        text: `${author.name} comentó en la tarea "${task.title}".`
+    });
+
+    // Poblar el autor para devolver el formato UserSummary
+    const populatedComment = await newComment.populate<{ author: { name: string, avatarUrl: string | null } }>('author', 'name avatarUrl');
+
+    const responseComment = {
+      id: populatedComment._id,
+      author: {
+        id: (populatedComment.author as any)._id,
+        name: (populatedComment.author as any).name,
+        avatarUrl: (populatedComment.author as any).avatarUrl
+      },
+      content: populatedComment.content,
+      timestamp: (populatedComment as any).createdAt
+    };
+
+    res.status(201).json(responseComment);
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+  }
+};
+
+export const deleteComment = async (req: Request, res: Response) => {
+    try {
+        const { commentId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+
+        const comment = await Comment.findById(commentId).populate({
+            path: 'task',
+            populate: { path: 'project' }
+        });
+
+        if (!comment) {
+            return res.status(404).json({ error: 'Comentario no encontrado.' });
+        }
+
+        const project = (comment.task as any).project;
+        const isAuthor = (comment.author as any).equals(userId);
+        const isProjectOwner = project.owner.equals(userId);
+
+        if (!isAuthor && !isProjectOwner) {
+            return res.status(403).json({ error: 'Acción no autorizada.' });
+        }
+
+        await Comment.findByIdAndDelete(commentId);
+        res.status(204).send();
+
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\comment.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\label.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Label } from '../models/Label.model';
+import { Project } from '../models/Project.model';
+import { Task } from '../models/Task.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+const checkMembership = async (projectId: string, userId: string) => {
+    const project = await Project.findById(projectId);
+    if (!project || !project.members.some(m => (m.user as any).equals(userId))) {
+        return null;
+    }
+    return project;
+};
+
+export const createLabel = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const { name, color } = req.body;
+        const user = req.user as IJwtPayload;
+
+        const project = await checkMembership(projectId, user.id);
+        if (!project) return res.status(403).json({ error: "Acción no autorizada." });
+
+        const newLabel = new Label({ name, color, project: projectId });
+        await newLabel.save();
+        res.status(201).json(newLabel);
+    } catch (error) {
+        res.status(500).json({ error: "Error en el servidor", details: (error as Error).message });
+    }
+};
+// (El resto de las funciones de get, update y delete se mantienen, pero asegúrate de que usen `req.user as IJwtPayload`)
+
+export const getLabelsForProject = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const user = req.user as IJwtPayload;
+        
+        const project = await checkMembership(projectId, user.id);
+        if (!project) return res.status(403).json({ message: "Acción no autorizada." });
+        
+        const labels = await Label.find({ project: projectId });
+        res.json(labels);
+    } catch (error) {
+        res.status(500).json({ message: "Error en el servidor", error: (error as Error).message });
+    }
+};
+
+export const updateLabel = async (req: Request, res: Response) => {
+    try {
+        const { labelId } = req.params;
+        const { name, color } = req.body;
+        const user = req.user as IJwtPayload;
+
+        const label = await Label.findById(labelId);
+        if (!label) return res.status(404).json({ message: "Etiqueta no encontrada." });
+        
+        const project = await checkMembership((label.project as any).toString(), user.id);
+        if (!project) return res.status(403).json({ message: "Acción no autorizada." });
+
+        const updatedLabel = await Label.findByIdAndUpdate(labelId, { name, color }, { new: true });
+        res.json(updatedLabel);
+    } catch (error) {
+        res.status(500).json({ message: "Error en el servidor", error: (error as Error).message });
+    }
+};
+
+export const deleteLabel = async (req: Request, res: Response) => {
+    try {
+        const { labelId } = req.params;
+        const user = req.user as IJwtPayload;
+
+        const label = await Label.findById(labelId);
+        if (!label) return res.status(404).json({ message: "Etiqueta no encontrada." });
+
+        const project = await checkMembership((label.project as any).toString(), user.id);
+        if (!project) return res.status(403).json({ message: "Acción no autorizada." });
+        
+        await Label.findByIdAndDelete(labelId);
+        await Task.updateMany({ labels: labelId }, { $pull: { labels: labelId } });
+
+        res.json({ message: "Etiqueta eliminada con éxito." });
+    } catch (error) {
+        res.status(500).json({ message: "Error en el servidor", error: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\label.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\notification.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Notification } from '../models/Notification.model';
+import { Project } from '../models/Project.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+export const getNotifications = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        const notifications = await Notification.find({ recipient: userId })
+            .sort({ createdAt: -1 }) 
+            .limit(30)
+            .populate('sender', 'name avatarUrl')
+            .populate('project', 'name');
+        res.json(notifications);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+export const respondToNotification = async (req: Request, res: Response) => {
+    try {
+        const { notificationId } = req.params;
+        const { response } = req.body;
+        const currentUser = req.user as IJwtPayload;
+
+        const notification = await Notification.findById(notificationId);
+        
+        if (!notification || (notification.recipient as any).toString() !== currentUser.id) {
+            return res.status(403).json({ error: "Acción no autorizada." });
+        }
+        if (notification.status !== 'pending') {
+            return res.status(400).json({ error: "Esta notificación ya ha sido respondida." });
+        }
+
+        if (response === 'accepted') {
+            let userToAddId;
+            if (notification.type === 'invitation') {
+                userToAddId = notification.recipient;
+            } else if (notification.type === 'collaboration_request') {
+                userToAddId = notification.sender;
+            }
+
+            if (userToAddId && notification.project) {
+                await Project.findByIdAndUpdate(notification.project, {
+                    $addToSet: { members: { user: userToAddId, role: 'member' } }
+                });
+            }
+            notification.status = 'accepted';
+        } else {
+            notification.status = 'declined';
+        }
+        
+        await notification.save();
+        res.json(notification);
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+export const markAsRead = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        await Notification.updateMany(
+            { recipient: userId, status: 'unread' },
+            { status: 'read' }
+        );
+        res.status(200).json({ message: 'Notificaciones marcadas como leídas.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+export const deleteNotification = async (req: Request, res: Response) => {
+    try {
+        const { notificationId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+        await Notification.findOneAndDelete({ _id: notificationId, recipient: userId });
+        res.status(200).json({ message: 'Notificación eliminada.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\notification.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\personalTodo.controller.ts ##############################
+
+// controllers/personalTodo.controller.ts
+import { Request, Response } from 'express';
+import { Todo as PersonalTodo } from '../models/Todo.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+export const getTodos = async (req: Request, res: Response) => {
+  const userId = (req.user as IJwtPayload).id;
+  const todos = await PersonalTodo.find({ owner: userId }).sort({ createdAt: -1 });
+  res.json(todos);
+};
+
+export const createTodo = async (req: Request, res: Response) => {
+  const { title, description, status } = req.body;
+  const userId = (req.user as IJwtPayload).id;
+  const newTodo = new PersonalTodo({ title, description, status, owner: userId });
+  await newTodo.save();
+  res.status(201).json(newTodo);
+};
+
+export const updateTodo = async (req: Request, res: Response) => {
+  const { todoId } = req.params;
+  const userId = (req.user as IJwtPayload).id;
+  const updatedTodo = await PersonalTodo.findOneAndUpdate(
+    { _id: todoId, owner: userId }, 
+    req.body, 
+    { new: true }
+  );
+  if (!updatedTodo) return res.status(404).json({ message: 'To-do no encontrado o sin autorización.' });
+  res.json(updatedTodo);
+};
+
+export const deleteTodo = async (req: Request, res: Response) => {
+  const { todoId } = req.params;
+  const userId = (req.user as IJwtPayload).id;
+  const deletedTodo = await PersonalTodo.findOneAndDelete({ _id: todoId, owner: userId });
+  if (!deletedTodo) return res.status(404).json({ message: 'To-do no encontrado o sin autorización.' });
+  res.json({ message: 'To-do eliminado.' });
+};
+
+############################## FIN DEL ARCHIVO: controllers\personalTodo.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\project.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Project, IProject } from '../models/Project.model';
+import { User, IUser } from '../models/User.model';
+import { Task, ITask } from '../models/Task.model';
+import { Comment } from '../models/Comment.model';
+import { Notification } from '../models/Notification.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+import mongoose from 'mongoose';
+
+// Helper para asegurar el tipo de req.user
+const getTypedUser = (req: Request): IJwtPayload => {
+    return req.user as IJwtPayload;
+}
+
+// Crear un nuevo proyecto
+export const createProject = async (req: Request, res: Response) => {
+  try {
+    const { name, description, color, members, dueDate } = JSON.parse(req.body.data);
+    const ownerId = getTypedUser(req)?.id;
+
+    if (!ownerId) {
+      return res.status(401).json({ message: 'Usuario no autenticado.' });
+    }
+
+    const newProjectData: any = {
+      name,
+      description,
+      color,
+      dueDate,
+      owner: ownerId,
+    };
+
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    if (files.projectImage) {
+        newProjectData.projectImageUrl = files.projectImage[0].path;
+    }
+    if (files.bannerImage) {
+        newProjectData.bannerImageUrl = files.bannerImage[0].path;
+    }
+
+    const initialMembers = members?.map((m: { user: string, role: string }) => ({
+        user: m.user,
+        role: m.role || 'member'
+    })) || [];
+
+    const ownerInMembers = initialMembers.some((m: { user: string }) => m.user === ownerId);
+    if (!ownerInMembers) {
+        initialMembers.push({ user: ownerId, role: 'admin' });
+    }
+    newProjectData.members = initialMembers;
+    
+    const newProject = new Project(newProjectData);
+    await newProject.save();
+    
+    const populatedProject = await newProject.populate('members.user', 'name avatarUrl');
+    
+    // Devolvemos el proyecto en el formato ProjectSummary esperado
+    const response = {
+        // CORRECCIÓN: Se castea 'populatedProject' a 'any' para acceder a '_id'
+        id: (populatedProject as any)._id.toString(),
+        name: populatedProject.name,
+        description: populatedProject.description,
+        color: populatedProject.color,
+        progress: 0,
+        members: populatedProject.members.map((member: any) => ({
+            id: member.user._id,
+            name: member.user.name,
+            avatarUrl: member.user.avatarUrl
+        })),
+        // CORRECCIÓN: Se castea 'populatedProject' a 'any' para acceder a 'owner'
+        isOwner: (populatedProject as any).owner.toString() === ownerId,
+        dueDate: populatedProject.dueDate ? populatedProject.dueDate.toISOString() : null,
+        totalTasks: 0,
+        completedTasks: 0,
+    }
+
+    res.status(201).json(response);
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+
+
+// MODIFICADO: Obtener todos los proyectos del usuario
+export const getAllUserProjects = async (req: Request, res: Response) => {
+    try {
+        const userId = getTypedUser(req)?.id;
+        const filter = req.query.filter as 'owned' | 'working' | undefined;
+
+        const query: mongoose.FilterQuery<IProject> = { 'members.user': userId };
+
+        // Lógica de filtrado
+        if (filter === 'owned') {
+            query.owner = userId;
+        } else if (filter === 'working') {
+            query.owner = { $ne: userId };
+        }
+      
+        const projectsData = await Project.find(query)
+            .populate('owner', 'name email')
+            .populate('members.user', 'name avatarUrl')
+            .lean();
+
+        const projectsWithProgress = await Promise.all(projectsData.map(async (project) => {
+            const tasks = await Task.find({ project: project._id });
+            const totalTasks = tasks.length;
+            const completedTasks = tasks.filter((t) => t.status === 'done').length;
+            const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+            
+            const formattedMembers = project.members.map(member => ({
+                id: (member.user as any)._id,
+                name: (member.user as any).name,
+                avatarUrl: (member.user as any).avatarUrl,
+            }));
+
+            return {
+              id: project._id.toString(),
+              name: project.name,
+              description: project.description,
+              color: project.color,
+              progress: Math.round(progress),
+              members: formattedMembers,
+              isOwner: (project.owner as any)._id.toString() === userId,
+              dueDate: project.dueDate ? project.dueDate.toISOString() : null,
+              totalTasks,
+              completedTasks,
+            };
+        }));
+
+        res.json(projectsWithProgress);
+    } catch (error) {
+      res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// MODIFICADO: Obtener un solo proyecto por su ID
+export const getProjectById = async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const userId = getTypedUser(req)?.id;
+
+    const project = await Project.findById(projectId)
+      .populate('owner', 'name email')
+      .populate({
+          path: 'members',
+          populate: {
+              path: 'user',
+              select: 'name email avatarUrl'
+          }
+      });
+      
+    if (!project) {
+      return res.status(404).json({ message: 'Proyecto no encontrado.' });
+    }
+
+    const isMember = project.members.some(member => (member.user as any)._id.equals(userId));
+    if (!isMember) {
+      return res.status(403).json({ message: 'Acción no autorizada.' });
+    }
+    
+    // CORRECCIÓN: Se castea 'project' a 'any' para acceder a '_id' de forma segura.
+    const tasks = await Task.find({ project: (project as any)._id })
+      .populate('assignees', 'name avatarUrl')
+      .populate('labels')
+      .lean();
+
+    const tasksByStatus = {
+        todo: [] as any[],
+        'in-progress': [] as any[],
+        review: [] as any[],
+        done: [] as any[],
+    };
+
+    for (const task of tasks) {
+        const formattedTask = {
+            id: task._id.toString(),
+            title: task.title,
+            priority: task.priority,
+            labels: task.labels.map((label: any) => ({
+                id: label._id.toString(),
+                name: label.name,
+                color: label.color
+            })),
+            assignees: task.assignees.map((assignee: any) => ({
+                id: assignee._id.toString(),
+                name: assignee.name,
+                avatarUrl: assignee.avatarUrl
+            })),
+            dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+            subtasks: {
+                total: task.subtasks.length,
+                completed: task.subtasks.filter(st => st.completed).length
+            },
+            commentCount: await Comment.countDocuments({ task: task._id }),
+            attachmentCount: task.attachments.length,
+            // CORRECCIÓN: Se castea 'project' a 'any' para acceder a '_id' de forma segura.
+            projectId: (project as any)._id.toString()
+        };
+        
+        if (tasksByStatus[task.status as keyof typeof tasksByStatus]) {
+            tasksByStatus[task.status as keyof typeof tasksByStatus].push(formattedTask);
+        }
+    }
+    
+    const projectDetails = {
+        id: (project as any)._id.toString(),
+        name: project.name,
+        description: project.description,
+        color: project.color,
+        progress: 0,
+        members: project.members.map((member: any) => ({
+            id: member.user._id,
+            name: member.user.name,
+            avatarUrl: member.user.avatarUrl
+        })),
+        isOwner: (project.owner as any)._id.toString() === userId,
+        dueDate: project.dueDate ? project.dueDate.toISOString() : null,
+        totalTasks: tasks.length,
+        completedTasks: tasks.filter(t => t.status === 'done').length,
+        tasksByStatus: tasksByStatus
+    };
+    
+    projectDetails.progress = projectDetails.totalTasks > 0 ? Math.round((projectDetails.completedTasks / projectDetails.totalTasks) * 100) : 0;
+
+    res.json(projectDetails);
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// Actualizar un proyecto
+export const updateProject = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const userId = getTypedUser(req)?.id;
+    
+        const project = await Project.findById(projectId);
+        if (!project) {
+          return res.status(404).json({ message: 'Proyecto no encontrado.' });
+        }
+    
+        const member = project.members.find(m => (m.user as any)._id.equals(userId));
+        if ((project.owner as any)._id.toString() !== userId && member?.role !== 'admin') {
+          return res.status(403).json({ message: 'Acción no autorizada. Requiere rol de administrador.' });
+        }
+    
+        const updateData: any = req.body.data ? JSON.parse(req.body.data) : {};
+
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        if (files.projectImage) {
+            updateData.projectImageUrl = files.projectImage[0].path;
+        }
+        if (files.bannerImage) {
+            updateData.bannerImageUrl = files.bannerImage[0].path;
+        }
+
+        const updatedProject = await Project.findByIdAndUpdate(projectId, updateData, { new: true })
+            .populate('members.user', 'name avatarUrl');
+        
+        if (!updatedProject) {
+            return res.status(404).json({ message: 'Proyecto no encontrado.' });
+        }
+        
+        const tasks = await Task.find({ project: (updatedProject as any)._id });
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(t => t.status === 'done').length;
+
+        // Devolvemos el proyecto en el formato ProjectSummary esperado
+        const response = {
+            // CORRECCIÓN: Se castea 'updatedProject' a 'any' para acceder a '_id'
+            id: (updatedProject as any)._id.toString(),
+            name: updatedProject.name,
+            description: updatedProject.description,
+            color: updatedProject.color,
+            progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
+            members: updatedProject.members.map((member: any) => ({
+                id: member.user._id,
+                name: member.user.name,
+                avatarUrl: member.user.avatarUrl
+            })),
+            // CORRECCIÓN: Se castea 'updatedProject' a 'any' para acceder a 'owner'
+            isOwner: (updatedProject as any).owner.toString() === userId,
+            dueDate: updatedProject.dueDate ? updatedProject.dueDate.toISOString() : null,
+            totalTasks: totalTasks,
+            completedTasks: completedTasks,
+        };
+
+        res.json(response);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// Enviar una invitación para unirse a un proyecto
+export const addMember = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const { userIdToInvite } = req.body; // Cambiado de 'email' a 'userIdToInvite'
+        const sender = getTypedUser(req);
+        if (!sender) return res.status(401).json({ message: "Usuario no autenticado." });
+
+        const project = await Project.findById(projectId);
+        if (!project) return res.status(404).json({ message: 'Proyecto no encontrado.' });
+
+        const member = project.members.find(m => (m.user as any)._id.equals(sender.id));
+        if (!member || member.role !== 'admin') {
+          return res.status(403).json({ message: 'Solo los administradores pueden enviar invitaciones.' });
+        }
+        
+        const memberToAdd = await User.findById(userIdToInvite); // Buscamos por ID
+        if (!memberToAdd) return res.status(404).json({ message: 'Usuario a invitar no encontrado.' });
+
+        if (project.members.some(m => (m.user as any)._id.equals(memberToAdd._id))) {
+            return res.status(400).json({ message: 'El usuario ya es miembro de este proyecto.' });
+        }
+
+        const newNotification = new Notification({
+            recipient: memberToAdd._id,
+            sender: sender.id,
+            type: 'invitation',
+            status: 'pending',
+            project: projectId,
+            text: `${sender.name} te ha invitado a unirte al proyecto "${project.name}".`,
+            link: `/project/${projectId}`
+        });
+        await newNotification.save();
+
+        res.status(200).json({ message: "Invitación enviada con éxito." });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+export const deleteProject = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const userId = getTypedUser(req)?.id;
+
+        const project = await Project.findById(projectId);
+
+        if (!project) {
+            return res.status(404).json({ message: 'Proyecto no encontrado.' });
+        }
+        if ((project.owner as any).toString() !== userId) {
+            return res.status(403).json({ message: 'Acción no autorizada. Solo el propietario puede eliminar.' });
+        }
+
+        // Eliminación en cascada de tareas
+        await Task.deleteMany({ project: projectId });
+        
+        await Project.findByIdAndDelete(projectId);
+
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\project.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\search.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Project } from '../models/Project.model';
+import { User } from '../models/User.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+export const globalSearch = async (req: Request, res: Response) => {
+    try {
+        const query = req.query.q as string;
+        const type = req.query.type as "all" | "user" | "project";
+
+        if (!query) {
+            return res.status(400).json({ error: "Se requiere un término de búsqueda." });
+        }
+        const searchRegex = new RegExp(query, 'i');
+        
+        let results = [];
+
+        if (type === 'project' || type === 'all' || !type) {
+            const projects = await Project.find({ name: searchRegex }).limit(10);
+            results.push(...projects.map(p => ({
+                type: 'project',
+                id: p._id,
+                name: p.name,
+                description: p.description,
+                avatar: p.projectImageUrl
+            })));
+        }
+
+        if (type === 'user' || type === 'all' || !type) {
+            const users = await User.find({ name: searchRegex }).limit(10);
+            results.push(...users.map(u => ({
+                type: 'user',
+                id: u._id,
+                name: u.name,
+                description: u.jobTitle,
+                avatar: u.avatarUrl
+            })));
+        }
+        
+        res.json(results);
+
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\search.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\task.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Task, ITask } from '../models/Task.model';
+import { Project } from '../models/Project.model';
+import { Notification } from '../models/Notification.model';
+import { Activity } from '../models/Activity.model';
+import { Comment } from '../models/Comment.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+import mongoose from 'mongoose';
+
+// =================================================================================
+// Helper para formatear la respuesta de una tarea al formato TaskDetails
+// =================================================================================
+const formatTaskDetails = async (task: ITask) => {
+    // Populamos los campos que puedan no estarlo
+    const populatedTask = await task.populate([
+        { path: 'assignees', select: 'name avatarUrl' },
+        { path: 'labels' }
+    ]);
+
+    // Buscamos los comentarios asociados a la tarea
+    const comments = await Comment.find({ task: (populatedTask as any)._id })
+        .populate('author', 'name avatarUrl')
+        .sort({ createdAt: 'desc' });
+
+    // Casteamos populatedTask a 'any' para acceder a sus propiedades de forma segura.
+    const populatedTaskAny = populatedTask as any;
+
+    // Mapeamos todos los campos al formato esperado por el frontend
+    return {
+        id: populatedTaskAny._id.toString(),
+        title: populatedTaskAny.title,
+        description: populatedTaskAny.description,
+        status: populatedTaskAny.status,
+        priority: populatedTaskAny.priority,
+        dueDate: populatedTaskAny.dueDate ? populatedTaskAny.dueDate.toISOString() : null,
+        projectId: populatedTaskAny.project._id ? populatedTaskAny.project._id.toString() : populatedTaskAny.project.toString(),
+        labels: populatedTaskAny.labels.map((label: any) => ({
+            id: label._id.toString(),
+            name: label.name,
+            color: label.color,
+        })),
+        assignees: populatedTaskAny.assignees.map((assignee: any) => ({
+            id: assignee._id.toString(),
+            name: assignee.name,
+            avatarUrl: assignee.avatarUrl,
+        })),
+        subtasks: populatedTaskAny.subtasks.map((subtask: any) => ({
+            id: subtask._id.toString(),
+            text: subtask.text,
+            completed: subtask.completed,
+        })),
+        attachments: populatedTaskAny.attachments.map((attachment: any) => ({
+            id: attachment._id.toString(),
+            name: attachment.name,
+            url: attachment.url,
+            size: attachment.size,
+            type: attachment.type,
+        })),
+        comments: comments.map((comment: any) => ({
+            id: comment._id.toString(),
+            author: {
+                id: comment.author._id.toString(),
+                name: comment.author.name,
+                avatarUrl: comment.author.avatarUrl,
+            },
+            content: comment.content,
+            timestamp: comment.createdAt.toISOString(),
+        })),
+    };
+};
+
+// =================================================================================
+// Funciones del controlador
+// =================================================================================
+
+// Obtener una tarea por su ID
+export const getTaskById = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+
+        const task = await Task.findById(taskId).populate('project');
+
+        if (!task) {
+            return res.status(404).json({ error: "Tarea no encontrada." });
+        }
+        
+        const project = task.project as any;
+        if (!project.members.some((m: any) => m.user.equals(userId))) {
+            return res.status(403).json({ error: "Acción no autorizada." });
+        }
+
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
+
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// Crear una nueva tarea
+export const createTask = async (req: Request, res: Response) => {
+  try {
+    const { title, description, priority, status, dueDate, assignees, labels, project } = req.body;
+    const user = req.user as IJwtPayload;
+
+    const newTask = new Task({ title, description, priority, status, dueDate, assignees, labels, project });
+    await newTask.save();
+    
+    await new Activity({
+        type: 'task_created',
+        user: user.id,
+        project: project,
+        task: newTask._id,
+        text: `${user.name} creó la tarea "${title}".`
+    }).save();
+
+    const formattedTask = await formatTaskDetails(newTask);
+    res.status(201).json(formattedTask);
+
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// Obtener todas las tareas de un proyecto
+export const getTasksForProject = async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const user = req.user as IJwtPayload;
+
+    const project = await Project.findById(projectId);
+    if (!project || !project.members.some(m => (m.user as any).equals(user.id))) {
+        return res.status(403).json({ message: "Acción no autorizada." });
+    }
+
+    const tasks = await Task.find({ project: projectId })
+      .populate('assignees', 'name avatar')
+      .populate('labels');
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// Actualizar una tarea
+export const updateTask = async (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const updateData = req.body;
+    const user = req.user as IJwtPayload;
+
+    const task = await Task.findById(taskId).populate('project');
+    if (!task) {
+      return res.status(404).json({ message: 'Tarea no encontrada.' });
+    }
+
+    const updatedTask = await Task.findByIdAndUpdate(taskId, updateData, { new: true });
+    if (!updatedTask) {
+      return res.status(404).json({ message: 'No se pudo actualizar la tarea.' });
+    }
+    
+    // Lógica de notificación
+    if (updateData.status && updateData.status !== task.status) {
+      const project = (task.project as any);
+      const recipients = new Set<string>();
+      if (project.owner) {
+        recipients.add(project.owner.toString());
+      }
+      task.assignees.forEach((assigneeId: any) => recipients.add(assigneeId.toString()));
+
+      recipients.delete(user.id);
+
+      for (const recipientId of recipients) {
+        await new Notification({
+            recipient: recipientId,
+            sender: user.id,
+            type: 'comment',
+            status: 'unread',
+            project: project._id,
+            task: task._id,
+            text: `${user.name} actualizó el estado de la tarea "${task.title}" a "${updateData.status}".`,
+            link: `/project/${project._id}`
+        }).save();
+      }
+    }
+    
+    const formattedTask = await formatTaskDetails(updatedTask);
+    res.json(formattedTask);
+    
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// Eliminar una tarea
+export const deleteTask = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        await Task.findByIdAndDelete(taskId);
+        res.json({ message: 'Tarea eliminada con éxito.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// Añadir una subtarea
+export const addSubtask = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        const { text } = req.body;
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
+
+        task.subtasks.push({ text, completed: false });
+        await task.save();
+
+        const formattedTask = await formatTaskDetails(task);
+        res.status(201).json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// Actualizar una subtarea
+export const updateSubtask = async (req: Request, res: Response) => {
+    try {
+        const { taskId, subtaskId } = req.params;
+        const { text, completed } = req.body;
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
+
+        const subtask = (task.subtasks as any).id(subtaskId);
+        if (!subtask) return res.status(404).json({ message: 'Subtarea no encontrada.' });
+
+        if (text !== undefined) subtask.text = text;
+        if (completed !== undefined) subtask.completed = completed;
+        
+        await task.save();
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// Eliminar una subtarea
+export const deleteSubtask = async (req: Request, res: Response) => {
+    try {
+        const { taskId, subtaskId } = req.params;
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
+
+        (task.subtasks as any).pull({ _id: subtaskId });
+        await task.save();
+        
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// Obtener tareas asignadas al usuario
+export const getAssignedTasks = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        const tasks = await Task.find({ assignees: userId })
+            .populate('project', 'name')
+            .populate('labels');
+        res.json(tasks);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+############################## FIN DEL ARCHIVO: controllers\task.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\todo.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { Todo } from '../models/Todo.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+// GET /api/todos - Obtiene todos los 'todos' del usuario logueado
+export const getTodos = async (req: Request, res: Response) => {
+  try {
+    const userId = (req.user as IJwtPayload).id;
+    const todos = await Todo.find({ owner: userId }).sort({ createdAt: -1 });
+    res.status(200).json(todos);
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// POST /api/todos - Crea un nuevo 'todo'
+export const createTodo = async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body;
+    const userId = (req.user as IJwtPayload).id;
+
+    if (!text) {
+      return res.status(400).json({ message: 'El campo "text" es requerido.' });
+    }
+
+    const newTodo = new Todo({
+      text,
+      owner: userId,
+      completed: false
+    });
+
+    await newTodo.save();
+    res.status(201).json(newTodo);
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// PUT /api/todos/:todoId - Actualiza un 'todo'
+export const updateTodo = async (req: Request, res: Response) => {
+  try {
+    const { todoId } = req.params;
+    const userId = (req.user as IJwtPayload).id;
+    const { text, completed } = req.body;
+
+    // La condición { _id: todoId, owner: userId } asegura que solo el dueño pueda actualizarlo
+    const updatedTodo = await Todo.findOneAndUpdate(
+      { _id: todoId, owner: userId },
+      { text, completed },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTodo) {
+      return res.status(404).json({ message: 'Todo no encontrado o sin autorización.' });
+    }
+
+    res.status(200).json(updatedTodo);
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+// DELETE /api/todos/:todoId - Elimina un 'todo'
+export const deleteTodo = async (req: Request, res: Response) => {
+  try {
+    const { todoId } = req.params;
+    const userId = (req.user as IJwtPayload).id;
+
+    // La condición { _id: todoId, owner: userId } asegura que solo el dueño pueda eliminarlo
+    const result = await Todo.findOneAndDelete({ _id: todoId, owner: userId });
+
+    if (!result) {
+      return res.status(404).json({ message: 'Todo no encontrado o sin autorización.' });
+    }
+
+    res.status(204).send(); // 204 No Content para eliminaciones exitosas
+  } catch (error) {
+    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+  }
+};
+
+############################## FIN DEL ARCHIVO: controllers\todo.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: controllers\user.controller.ts ##############################
+
+import { Request, Response } from 'express';
+import { User } from '../models/User.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+
+// GET /api/users/me
+// Obtiene el perfil completo del usuario autenticado.
+export const getMyProfile = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+        res.json({
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            avatarUrl: user.avatarUrl,
+            bannerUrl: user.bannerUrl,
+            title: user.jobTitle,
+            bio: user.bio,
+            timezone: user.timezone,
+            skills: user.skills,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// PUT /api/users/me/profile o /api/users/me
+// Actualiza el perfil del usuario autenticado.
+export const updateProfile = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        // El body puede contener cualquier subconjunto de los campos del perfil
+        const updatedUser = await User.findByIdAndUpdate(userId, req.body, { new: true });
+
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+        res.json({
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            avatarUrl: updatedUser.avatarUrl,
+            bannerUrl: updatedUser.bannerUrl,
+            title: updatedUser.jobTitle,
+            bio: updatedUser.bio,
+            timezone: updatedUser.timezone,
+            skills: updatedUser.skills,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// POST /api/users/me/avatar
+// Sube una nueva imagen de avatar para el usuario.
+export const uploadAvatar = async (req: Request, res: Response) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No se subió ningún archivo." });
+        }
+        const userId = (req.user as IJwtPayload).id;
+        const avatarUrl = req.file.path; // URL de Cloudinary
+
+        await User.findByIdAndUpdate(userId, { avatarUrl });
+
+        res.status(200).json({ url: avatarUrl });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// POST /api/users/me/banner
+// Sube una nueva imagen de banner para el usuario.
+export const uploadBanner = async (req: Request, res: Response) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No se subió ningún archivo." });
+        }
+        const userId = (req.user as IJwtPayload).id;
+        const bannerUrl = req.file.path; // URL de Cloudinary
+
+        await User.findByIdAndUpdate(userId, { bannerUrl });
+
+        res.status(200).json({ url: bannerUrl });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// PUT /api/users/me/settings
+// Actualiza la configuración de apariencia y notificaciones del usuario.
+export const updateUserSettings = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        const settings = req.body;
+
+        const updatedUser = await User.findByIdAndUpdate(
+            userId, 
+            { settings }, 
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+
+        res.status(200).json(updatedUser.settings);
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+
+############################## FIN DEL ARCHIVO: controllers\user.controller.ts ##################################
+
+############################## INICIO DEL ARCHIVO: index.ts ##############################
+
+import 'dotenv/config';
+import express, { Request, Response } from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+
+import authRoutes from './routes/auth.routes';
+import projectRoutes from './routes/project.routes';
+import taskRoutes from './routes/task.routes';
+import labelRoutes from './routes/label.routes';
+import uploadRoutes from './routes/upload.routes';
+import userRoutes from './routes/user.routes';
+import notificationRoutes from './routes/notification.routes';
+import passport from 'passport';
+import todoRoutes from './routes/todo.routes';
+import './config/passport.config';
+import activityRoutes from './routes/activity.routes';
+import searchRoutes from './routes/search.routes';
+import assistantRoutes from './routes/assistant.routes'; 
+
+export const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+const mongoUri = process.env.MONGO_URI;
+if (!mongoUri) {
+  console.error('❌ FATAL ERROR: MONGO_URI no está definida en el archivo .env');
+  process.exit(1);
+}
+if (process.env.NODE_ENV !== 'test') {
+mongoose.connect(mongoUri)
+  .then(() => console.log('✅ Conectado a MongoDB'))
+  .catch(err => console.error('❌ Error al conectar a MongoDB:', err));
+}
+app.use(passport.initialize());
+app.use('/api/auth', authRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api', labelRoutes);
+app.use('/api', uploadRoutes);
+app.use('/api/user', userRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/todos', todoRoutes);
+app.use('/api/activity', activityRoutes);
+app.use('/api/search', searchRoutes); 
+app.use('/api/assistant', assistantRoutes);
+
+app.get('/', (req: Request, res: Response) => {
+  res.send('¡La API está funcionando correctamente con TypeScript!');
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+});
+
+############################## FIN DEL ARCHIVO: index.ts ##################################
+
+############################## INICIO DEL ARCHIVO: jest.config.js ##############################
+
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  // MODIFICADO: Añadimos el nuevo archivo al principio del array
+  setupFilesAfterEnv: ['./tests/loadEnv.ts', './tests/setup.ts'],
+};
+
+############################## FIN DEL ARCHIVO: jest.config.js ##################################
+
+############################## INICIO DEL ARCHIVO: middleware\auth.middleware.ts ##############################
+
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+
+// Se añade "export" para que la interfaz sea accesible globalmente
+export interface IJwtPayload {
+  id: string;
+  name: string;
+}
+
+const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Acceso denegado. No se proporcionó token.' });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as IJwtPayload;
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Token inválido o expirado.' });
+  }
+};
+
+export default authMiddleware;
+
+############################## FIN DEL ARCHIVO: middleware\auth.middleware.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Activity.model.ts ##############################
+
+// models/Activity.model.ts
+import mongoose, { Schema, Document } from 'mongoose';
+import { IUser } from './User.model';
+import { IProject } from './Project.model';
+import { ITask } from './Task.model';
+
+export interface IActivity extends Document {
+  type: 'task_created' | 'comment_added' | 'user_joined' | 'task_status_changed';
+  user: IUser['_id'];
+  project: IProject['_id'];
+  task?: ITask['_id'];
+  meta?: object;
+  text: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const ActivitySchema: Schema<IActivity> = new Schema({
+  type: {
+    type: String,
+    enum: ['task_created', 'comment_added', 'user_joined', 'task_status_changed'],
+    required: true,
+  },
+  user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
+  task: { type: Schema.Types.ObjectId, ref: 'Task' },
+  meta: { type: Schema.Types.Mixed },
+  text: { type: String, required: true }
+}, { timestamps: true });
+
+export const Activity = mongoose.model<IActivity>('Activity', ActivitySchema);
+
+############################## FIN DEL ARCHIVO: models\Activity.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Comment.model.ts ##############################
+
+// models/Comment.model.ts
+import mongoose, { Schema, Document } from 'mongoose';
+import { IUser } from './User.model';
+import { ITask } from './Task.model';
+
+export interface IComment extends Document {
+  content: string;
+  author: IUser['_id'];
+  task: ITask['_id'];
+  attachmentUrl?: string;
+}
+
+const CommentSchema: Schema<IComment> = new Schema({
+  content: { type: String, required: true },
+  author: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  task: { type: Schema.Types.ObjectId, ref: 'Task', required: true },
+  attachmentUrl: { type: String, default: null }
+}, { timestamps: true });
+
+export const Comment = mongoose.model<IComment>('Comment', CommentSchema);
+
+############################## FIN DEL ARCHIVO: models\Comment.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Label.model.ts ##############################
+
+// models/Label.model.ts
+import mongoose, { Schema, Document } from 'mongoose';
+import { IProject } from './Project.model';
+
+export interface ILabel extends Document {
+  name: string;
+  color: string;
+  project: IProject['_id'];
+}
+
+const LabelSchema: Schema<ILabel> = new Schema({
+  name: { type: String, required: true },
+  color: { type: String, required: true },
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true }
+});
+
+export const Label = mongoose.model<ILabel>('Label', LabelSchema);
+
+############################## FIN DEL ARCHIVO: models\Label.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Notification.model.ts ##############################
+
+// models/Notification.model.ts
+import mongoose, { Schema, Document } from 'mongoose';
+import { IUser } from './User.model';
+import { IProject } from './Project.model';
+import { ITask } from './Task.model';
+
+export interface INotification extends Document {
+  recipient: IUser['_id'];
+  sender: IUser['_id'];
+  type: 'invitation' | 'mention' | 'comment' | 'collaboration_request';
+  status: 'pending' | 'accepted' | 'declined' | 'read' | 'unread';
+  project?: IProject['_id'];
+  task?: ITask['_id'];
+  text: string;
+  link: string;
+}
+
+const NotificationSchema: Schema<INotification> = new Schema({
+  recipient: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  type: {
+    type: String,
+    enum: ['invitation', 'mention', 'comment', 'collaboration_request'],
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'accepted', 'declined', 'read', 'unread'],
+    required: true
+  },
+  project: { type: Schema.Types.ObjectId, ref: 'Project' },
+  task: { type: Schema.Types.ObjectId, ref: 'Task' },
+  text: { type: String, required: true },
+  link: { type: String, required: true },
+}, { timestamps: true });
+
+export const Notification = mongoose.model<INotification>('Notification', NotificationSchema);
+
+############################## FIN DEL ARCHIVO: models\Notification.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Project.model.ts ##############################
+
+import mongoose, { Schema, Document } from 'mongoose';
+import { IUser } from './User.model';
+import { ITask } from './Task.model';
+
+interface IProjectMember {
+  user: IUser['_id'];
+  role: 'admin' | 'member';
+}
+
+export interface IProject extends Document {
+  name: string;
+  description: string;
+  color: string;
+  dueDate?: Date;
+  owner: IUser['_id'];
+  projectImageUrl?: string;
+  bannerImageUrl?: string;
+  members: IProjectMember[];
+  tasks: ITask['_id'][]; // Campo para las tareas
+}
+
+const ProjectSchema: Schema<IProject> = new Schema({
+  name: { type: String, required: true, trim: true },
+  description: { type: String, required: true },
+  color: { type: String, required: true },
+  dueDate: { type: Date },
+  owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  projectImageUrl: { type: String },
+  bannerImageUrl: { type: String },
+  members: [{
+    _id: false,
+    user: { type: Schema.Types.ObjectId, ref: 'User' },
+    role: {
+      type: String,
+      enum: ['admin', 'member'],
+      default: 'member'
+    }
+  }],
+  tasks: [{ type: Schema.Types.ObjectId, ref: 'Task' }] // Campo para las tareas
+}, { timestamps: true });
+
+// Exportación nombrada
+export const Project = mongoose.model<IProject>('Project', ProjectSchema);
+
+############################## FIN DEL ARCHIVO: models\Project.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Task.model.ts ##############################
+
+import mongoose, { Schema, Document } from 'mongoose';
+import { IProject } from './Project.model';
+import { IUser } from './User.model';
+import { ILabel } from './Label.model';
+
+export interface ISubtask extends mongoose.Types.Subdocument { 
+  text: string;
+  completed: boolean;
+}
+
+export interface IAttachment extends mongoose.Types.Subdocument {
+  name: string;
+  url: string;
+  size: string;
+  type: 'image' | 'document' | 'other';
+}
+
+export interface ITask extends Document {
+  title: string;
+  description?: string;
+  status: 'todo' | 'in-progress' | 'review' | 'done';
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  project: IProject['_id'];
+  assignees: IUser['_id'][];
+  labels: ILabel['_id'][];
+  subtasks: mongoose.Types.DocumentArray<ISubtask>; // Tipo correcto para subdocumentos
+  attachments: mongoose.Types.DocumentArray<IAttachment>;
+  dueDate?: Date;
+}
+
+const TaskSchema: Schema<ITask> = new Schema({
+  title: { type: String, required: true, trim: true },
+  description: { type: String, default: '' },
+  status: { type: String, enum: ['todo', 'in-progress', 'review', 'done'], default: 'todo' },
+  priority: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
+  assignees: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  labels: [{ type: Schema.Types.ObjectId, ref: 'Label' }],
+  subtasks: [{ text: { type: String, required: true }, completed: { type: Boolean, default: false } }],
+  attachments: [{ name: String, url: String, size: String, type: String }],
+  dueDate: { type: Date },
+}, { timestamps: true });
+
+// Exportación nombrada
+export const Task = mongoose.model<ITask>('Task', TaskSchema);
+
+############################## FIN DEL ARCHIVO: models\Task.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\Todo.model.ts ##############################
+
+import mongoose, { Schema, Document } from 'mongoose';
+import { IUser } from './User.model';
+
+export interface ITodo extends Document {
+  text: string;
+  completed: boolean;
+  priority: 'low' | 'medium' | 'high';
+  category: string;
+  dueDate?: Date;
+  owner: IUser['_id'];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const TodoSchema: Schema<ITodo> = new Schema({
+  text: { type: String, required: true },
+  completed: { type: Boolean, default: false },
+  priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
+  category: { type: String, default: 'General' },
+  dueDate: { type: Date },
+  owner: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+}, { timestamps: true });
+
+export const Todo = mongoose.model<ITodo>('Todo', TodoSchema);
+
+############################## FIN DEL ARCHIVO: models\Todo.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: models\User.model.ts ##############################
+
+import mongoose, { Schema, Document } from 'mongoose';
+import bcrypt from 'bcryptjs';
+
+// NUEVO: Definimos la interfaz para la configuración del usuario
+export interface IUserSettings {
+  notifications: {
+    tasks: { email: boolean; push: boolean; inApp: boolean };
+    meetings: { email: boolean; push: boolean; inApp: boolean };
+    team: { email: boolean; push: boolean; inApp: boolean };
+    mentions: { email: boolean; push: boolean; inApp: boolean };
+  };
+  appearance: {
+    theme: 'light' | 'dark' | 'system';
+    accentColor: string;
+    animations: boolean;
+  };
+}
+
+// Interfaz actualizada para incluir la configuración
+export interface IUser extends Document {
+  name: string;
+  email: string;
+  password?: string;
+  githubId?: string;
+  googleId?: string;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  bio: string | null;
+  jobTitle: string | null;
+  timezone: string | null;
+  skills: string[];
+  settings?: IUserSettings; // <-- NUEVO CAMPO
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
+  comparePassword(candidatePassword: string): Promise<boolean>;
+}
+
+const UserSchema: Schema<IUser> = new Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true, lowercase: true },
+  password: { type: String, required: false, select: false },
+  githubId: { type: String, unique: true, sparse: true },
+  googleId: { type: String, unique: true, sparse: true },
+  avatarUrl: { type: String, default: null },
+  bannerUrl: { type: String, default: null },
+  bio: { type: String, default: null },
+  jobTitle: { type: String, default: null },
+  timezone: { type: String, default: null },
+  skills: { type: [String], default: [] },
+  
+  settings: {
+    notifications: {
+        tasks: { email: Boolean, push: Boolean, inApp: Boolean },
+        meetings: { email: Boolean, push: Boolean, inApp: Boolean },
+        team: { email: Boolean, push: Boolean, inApp: Boolean },
+        mentions: { email: Boolean, push: Boolean, inApp: Boolean },
+    },
+    appearance: {
+        theme: String,
+        accentColor: String,
+        animations: Boolean,
+    }
+  },
+
+  passwordResetToken: String,
+  passwordResetExpires: Date,
+}, { timestamps: true });
+
+UserSchema.pre<IUser>('save', async function(next) {
+  if (!this.isModified('password') || !this.password) {
+    return next();
+  }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+UserSchema.methods.comparePassword = function(candidatePassword: string): Promise<boolean> {
+  if (!this.password) return Promise.resolve(false);
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Exportación nombrada
+export const User = mongoose.model<IUser>('User', UserSchema);
+
+############################## FIN DEL ARCHIVO: models\User.model.ts ##################################
+
+############################## INICIO DEL ARCHIVO: package-lock.json ##############################
+
 {
   "name": "jello-backend",
   "version": "1.0.0",
@@ -8382,3 +10498,698 @@
     }
   }
 }
+
+
+############################## FIN DEL ARCHIVO: package-lock.json ##################################
+
+############################## INICIO DEL ARCHIVO: package.json ##############################
+
+{
+  "name": "jello-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "nodemon index.ts",
+    "test": "jest --detectOpenHandles"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cloudinary": "^1.41.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.18.0",
+    "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "nodemailer": "^7.0.5",
+    "passport": "^0.7.0",
+    "passport-github2": "^0.1.12",
+    "passport-google-oauth20": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.3.0",
+    "@types/nodemailer": "^7.0.1",
+    "@types/passport": "^1.0.17",
+    "@types/passport-github2": "^1.2.9",
+    "@types/passport-google-oauth20": "^2.0.16",
+    "@types/supertest": "^6.0.3",
+    "jest": "^30.1.3",
+    "mongodb-memory-server": "^10.2.1",
+    "nodemon": "^3.1.10",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
+
+
+############################## FIN DEL ARCHIVO: package.json ##################################
+
+############################## INICIO DEL ARCHIVO: routes\activity.routes.ts ##############################
+
+import { Router } from 'express';
+import * as activityController from '../controllers/activity.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+
+// Todas las rutas de actividad requieren que el usuario esté autenticado
+router.use(authMiddleware);
+
+router.get('/recent', activityController.getRecentActivity);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\activity.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\assistant.routes.ts ##############################
+
+import { Router } from 'express';
+import * as assistantController from '../controllers/assistant.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+
+router.use(authMiddleware);
+
+router.post('/chat', assistantController.chatWithAssistant);
+
+export default router;
+
+
+############################## FIN DEL ARCHIVO: routes\assistant.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\auth.routes.ts ##############################
+
+import { Router } from 'express';
+import passport from 'passport';
+import jwt from 'jsonwebtoken'; 
+import { IUser } from '../models/User.model'; 
+import { IJwtPayload } from '../middleware/auth.middleware';
+import * as authController from '../controllers/auth.controller';
+
+const router = Router();
+
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+router.get(
+  '/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login', session: false }),
+  (req, res) => {
+    const user = req.user as IUser;
+
+    const payload = { id: user._id, name: user.name };
+    const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+
+    res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${token}`);
+  }
+);
+
+router.get('/github', passport.authenticate('github', { scope: ['user:email'] }));
+
+router.get(
+  '/github/callback',
+  passport.authenticate('github', { failureRedirect: '/login', session: false }),
+  (req, res) => {
+    const payload = req.user as IJwtPayload;
+    const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+    res.redirect(`${process.env.FRONTEND_URL}/dashboard?token=${token}`);
+  }
+);
+
+// POST /api/auth/register
+router.post('/register', authController.register);
+
+// POST /api/auth/login
+router.post('/login', authController.login);
+
+// CORRECCIÓN: Se eliminan las rutas a controladores que no existen.
+// Las funciones 'forgotPassword' y 'resetPassword' no están definidas en auth.controller.ts.
+// router.post('/forgot-password', authController.forgotPassword);
+// router.post('/reset-password/:token', authController.resetPassword);
+
+export default router;
+
+
+############################## FIN DEL ARCHIVO: routes\auth.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\label.routes.ts ##############################
+
+import { Router } from 'express';
+import * as labelController from '../controllers/label.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+
+router.use(authMiddleware);
+
+router.post('/projects/:projectId/labels', labelController.createLabel);
+
+router.get('/projects/:projectId/labels', labelController.getLabelsForProject);
+
+router.put('/labels/:labelId', labelController.updateLabel);
+
+router.delete('/labels/:labelId', labelController.deleteLabel);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\label.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\notification.routes.ts ##############################
+
+import { Router } from 'express';
+import * as notificationController from '../controllers/notification.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+router.use(authMiddleware);
+
+router.get('/', notificationController.getNotifications);
+
+router.put('/read', notificationController.markAsRead);
+
+// PUT /api/notifications/:notificationId/respond -> Responder a una notificación
+router.put('/:notificationId/respond', notificationController.respondToNotification); // <-- CAMBIO DE NOMBRE
+
+
+router.delete('/:notificationId', notificationController.deleteNotification);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\notification.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\personalTodo.routes.ts ##############################
+
+import { Router } from 'express';
+import * as todoController from '../controllers/personalTodo.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+router.use(authMiddleware);
+
+router.route('/')
+  .get(todoController.getTodos)
+  .post(todoController.createTodo);
+
+router.route('/:todoId')
+  .put(todoController.updateTodo)
+  .delete(todoController.deleteTodo);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\personalTodo.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\project.routes.ts ##############################
+
+import { Router } from 'express';
+import * as projectController from '../controllers/project.controller';
+import * as taskController from '../controllers/task.controller';
+import authMiddleware from '../middleware/auth.middleware';
+import uploader from '../config/cloudinary.config';
+
+const router = Router();
+
+router.use(authMiddleware);
+
+const projectUploads = uploader.fields([
+    { name: 'projectImage', maxCount: 1 },
+    { name: 'bannerImage', maxCount: 1 }
+]);
+
+// Rutas de Proyectos
+router.get('/', projectController.getAllUserProjects); 
+router.post('/', projectUploads, projectController.createProject);
+router.get('/:projectId', projectController.getProjectById);
+router.put('/:projectId', projectUploads, projectController.updateProject);
+router.delete('/:projectId', projectController.deleteProject); // <-- NUEVA RUTA DE BORRADO
+router.post('/:projectId/invitations', projectController.addMember); // <-- RUTA DE INVITACIONES CORREGIDA
+
+/* --- Rutas de Tareas Anidadas --- */
+router.get('/:projectId/tasks', taskController.getTasksForProject);
+router.post('/:projectId/tasks', taskController.createTask);
+router.put('/:projectId/tasks/:taskId', taskController.updateTask);
+router.delete('/:projectId/tasks/:taskId', taskController.deleteTask);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\project.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\search.routes.ts ##############################
+
+import { Router } from 'express';
+import * as searchController from '../controllers/search.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+
+router.use(authMiddleware);
+
+// GET /api/search?q=texto_a_buscar
+router.get('/', searchController.globalSearch);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\search.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\task.routes.ts ##############################
+
+import { Router } from 'express';
+import * as taskController from '../controllers/task.controller';
+import * as commentController from '../controllers/comment.controller';
+import * as attachmentController from '../controllers/attachment.controller';
+import authMiddleware from '../middleware/auth.middleware';
+import uploader from '../config/cloudinary.config';
+
+const router = Router();
+router.use(authMiddleware);
+
+// Tareas asignadas al usuario
+router.get('/my-tasks', taskController.getAssignedTasks);
+
+// NUEVO: Ruta para obtener los detalles de una tarea específica
+router.get('/:taskId', taskController.getTaskById);
+
+// Comentarios
+router.post('/:taskId/comments', commentController.addComment);
+
+// Subtareas
+router.post('/:taskId/subtasks', taskController.addSubtask);
+router.put('/:taskId/subtasks/:subtaskId', taskController.updateSubtask);
+router.delete('/:taskId/subtasks/:subtaskId', taskController.deleteSubtask);
+
+// Adjuntos
+router.post('/:taskId/attachments', uploader.single('file'), attachmentController.addAttachment);
+router.delete('/:taskId/attachments/:attachmentId', attachmentController.deleteAttachment);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\task.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\todo.routes.ts ##############################
+
+import { Router } from 'express';
+import * as todoController from '../controllers/todo.controller';
+import authMiddleware from '../middleware/auth.middleware';
+
+const router = Router();
+
+// Todas las rutas de 'todos' requieren que el usuario esté autenticado
+router.use(authMiddleware);
+
+router.route('/')
+  .get(todoController.getTodos)
+  .post(todoController.createTodo);
+
+router.route('/:todoId')
+  .put(todoController.updateTodo)
+  .delete(todoController.deleteTodo);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\todo.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\upload.routes.ts ##############################
+
+import { Router, Request, Response } from 'express';
+import uploader from '../config/cloudinary.config';
+
+const router = Router();
+
+router.post('/upload', uploader.single('file'), (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ message: "No se subió ningún archivo." });
+  }
+
+  res.json({ fileUrl: req.file.path });
+});
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\upload.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: routes\user.routes.ts ##############################
+
+import { Router } from 'express';
+import * as userController from '../controllers/user.controller';
+import authMiddleware from '../middleware/auth.middleware';
+import uploader from '../config/cloudinary.config'; // <-- Importamos el uploader
+
+const router = Router();
+
+// Aplicamos el middleware de autenticación a todas las rutas de este archivo
+router.use(authMiddleware);
+
+// Rutas de perfil
+router.get('/me', userController.getMyProfile);
+router.put('/profile', userController.updateProfile);
+
+// NUEVO: Rutas para subir imágenes
+router.post('/me/avatar', uploader.single('file'), userController.uploadAvatar);
+router.post('/me/banner', uploader.single('file'), userController.uploadBanner);
+
+// NUEVO: Ruta para la configuración
+router.put('/me/settings', userController.updateUserSettings);
+
+export default router;
+
+############################## FIN DEL ARCHIVO: routes\user.routes.ts ##################################
+
+############################## INICIO DEL ARCHIVO: services\activity.service.ts ##############################
+
+import { Activity, IActivity } from '../models/Activity.model';
+
+type ActivityLogOptions = {
+    type: IActivity['type'];
+    user: string;
+    project: string;
+    task?: string;
+    meta?: object;
+    text: string;
+}
+
+export const createActivityLog = async (options: ActivityLogOptions) => {
+    try {
+        const activity = new Activity({
+            type: options.type,
+            user: options.user,
+            project: options.project,
+            task: options.task,
+            meta: options.meta,
+            text: options.text
+        });
+        await activity.save();
+    } catch (error) {
+        // En un proyecto de producción, aquí podrías registrar el error
+        // sin detener la ejecución principal.
+        console.error("Failed to create activity log:", error);
+    }
+};
+
+############################## FIN DEL ARCHIVO: services\activity.service.ts ##################################
+
+############################## INICIO DEL ARCHIVO: tests\auth.test.ts ##############################
+
+import request from 'supertest';
+import { app } from '../index'; // Ajusta la ruta si es necesario
+import { User } from '../models/User.model';
+
+// Limpiamos la colección de usuarios después de cada prueba para mantenerlas aisladas
+afterEach(async () => {
+    await User.deleteMany({});
+});
+
+describe('Endpoints de Autenticación - /api/auth', () => {
+
+    const testUser = {
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'password123',
+    };
+
+    it('POST /register - debería registrar un nuevo usuario correctamente', async () => {
+        const response = await request(app)
+            .post('/api/auth/register')
+            .send(testUser)
+            .expect(201);
+
+        expect(response.body).toHaveProperty('token');
+        expect(response.body.user.email).toBe(testUser.email);
+
+        const userInDb = await User.findOne({ email: testUser.email });
+        expect(userInDb).not.toBeNull();
+    });
+
+    it('POST /register - debería devolver un error 400 si el email ya existe', async () => {
+        await new User(testUser).save(); // Guardamos un usuario primero
+
+        await request(app)
+            .post('/api/auth/register')
+            .send(testUser)
+            .expect(400);
+    });
+
+    it('POST /login - debería iniciar sesión y devolver un token para un usuario válido', async () => {
+        await new User(testUser).save(); // Guardamos el usuario para poder hacer login
+
+        const response = await request(app)
+            .post('/api/auth/login')
+            .send({ email: testUser.email, password: testUser.password })
+            .expect(200);
+
+        expect(response.body).toHaveProperty('token');
+    });
+
+    it('POST /login - debería devolver un error 401 para credenciales inválidas', async () => {
+        await new User(testUser).save();
+
+        await request(app)
+            .post('/api/auth/login')
+            .send({ email: testUser.email, password: 'wrongpassword' })
+            .expect(401);
+    });
+});
+
+############################## FIN DEL ARCHIVO: tests\auth.test.ts ##################################
+
+############################## INICIO DEL ARCHIVO: tests\loadEnv.ts ##############################
+
+import dotenv from 'dotenv';
+dotenv.config({ path: './.env' }); // Le decimos explícitamente dónde está el archivo .env
+
+
+############################## FIN DEL ARCHIVO: tests\loadEnv.ts ##################################
+
+############################## INICIO DEL ARCHIVO: tests\projects.test.ts ##############################
+
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import mongoose from 'mongoose';
+
+describe('Endpoints de Proyectos - /api/projects', () => {
+    let token: string;
+    let userId: string;
+
+    // Antes de cada prueba, creamos un usuario y obtenemos su token
+    beforeEach(async () => {
+        const user = new User({
+            name: 'Project User',
+            email: 'project@test.com',
+            password: 'password123'
+        });
+        const savedUser = await user.save();
+        userId = (savedUser as any)._id.toString();
+
+        const response = await request(app)
+            .post('/api/auth/login')
+            .send({ email: 'project@test.com', password: 'password123' });
+        
+        token = response.body.token;
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+    });
+
+    it('POST / - debería crear un nuevo proyecto si el usuario está autenticado', async () => {
+        const projectData = {
+            name: "Nuevo Proyecto de Prueba",
+            description: "Esta es una descripción.",
+            color: "bg-blue-500"
+        };
+        
+        const response = await request(app)
+            .post('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .field('data', JSON.stringify(projectData)) // Usamos .field para multipart/form-data
+            .expect(201);
+        
+        expect(response.body.name).toBe(projectData.name);
+        expect(response.body.isOwner).toBe(true);
+    });
+
+    it('GET / - debería devolver solo los proyectos del usuario autenticado', async () => {
+        // Creamos un proyecto para el usuario de prueba
+        await new Project({ name: 'Proyecto 1', description: 'desc', color: 'red', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+        
+        // Creamos un proyecto de otro usuario
+        await new Project({ name: 'Proyecto de Otro', description: 'desc', color: 'blue', owner: new mongoose.Types.ObjectId(), members: [] }).save();
+
+        const response = await request(app)
+            .get('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].name).toBe('Proyecto 1');
+    });
+
+    it('DELETE /:projectId - debería permitir al propietario eliminar su proyecto', async () => {
+        const project = await new Project({ name: 'A eliminar', description: 'desc', color: 'red', owner: userId, members: [] }).save();
+        
+        await request(app)
+            .delete(`/api/projects/${project._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(204);
+
+        const projectInDb = await Project.findById(project._id);
+        expect(projectInDb).toBeNull();
+    });
+
+    it('DELETE /:projectId - debería denegar el acceso si el usuario no es el propietario', async () => {
+        const project = await new Project({ name: 'Proyecto ajeno', description: 'desc', color: 'red', owner: new mongoose.Types.ObjectId(), members: [] }).save();
+        
+        await request(app)
+            .delete(`/api/projects/${project._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(403);
+    });
+});
+
+############################## FIN DEL ARCHIVO: tests\projects.test.ts ##################################
+
+############################## INICIO DEL ARCHIVO: tests\setup.ts ##############################
+
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import mongoose from 'mongoose';
+
+let mongo: MongoMemoryServer;
+
+// Se ejecuta una vez, antes de todas las pruebas
+beforeAll(async () => {
+  mongo = await MongoMemoryServer.create();
+  const mongoUri = mongo.getUri();
+  await mongoose.connect(mongoUri);
+});
+
+// Se ejecuta una vez, después de todas las pruebas
+afterAll(async () => {
+  await mongoose.disconnect();
+  await mongo.stop();
+});
+
+############################## FIN DEL ARCHIVO: tests\setup.ts ##################################
+
+############################## INICIO DEL ARCHIVO: tests\task&comment.test.ts ##############################
+
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import { Task } from '../models/Task.model';
+import { Comment } from '../models/Comment.model';
+
+describe('Endpoints de Tareas y Comentarios', () => {
+    let token: string;
+    let userId: string;
+    let projectId: string;
+
+    beforeEach(async () => {
+        const user = await new User({ name: 'Task User', email: 'task@test.com', password: 'password123' }).save();
+        userId = (user as any)._id.toString();
+
+        const response = await request(app).post('/api/auth/login').send({ email: 'task@test.com', password: 'password123' });
+        token = response.body.token;
+
+        const project = await new Project({ name: 'Project for Tasks', description: 'desc', color: 'green', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+        projectId = (project as any)._id.toString();
+    });
+    
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+        await Task.deleteMany({});
+        await Comment.deleteMany({});
+    });
+
+    it('POST /api/projects/:projectId/tasks - debería crear una nueva tarea en un proyecto', async () => {
+        const taskData = {
+            title: "Mi primera tarea",
+            project: projectId
+        };
+        
+        const response = await request(app)
+            .post(`/api/projects/${projectId}/tasks`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(taskData)
+            .expect(201);
+        
+        expect(response.body.title).toBe(taskData.title);
+        expect(response.body.projectId).toBe(projectId);
+    });
+
+    it('POST /api/tasks/:taskId/comments - debería añadir un comentario a una tarea', async () => {
+        const task = await new Task({ title: 'Task with comments', project: projectId }).save();
+
+        const response = await request(app)
+            .post(`/api/tasks/${task._id}/comments`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ content: 'Este es un comentario de prueba' })
+            .expect(201);
+            
+        expect(response.body.content).toBe('Este es un comentario de prueba');
+        expect(response.body.author.id).toBe(userId);
+    });
+});
+
+############################## FIN DEL ARCHIVO: tests\task&comment.test.ts ##################################
+
+############################## INICIO DEL ARCHIVO: tsconfig.json ##############################
+
+{
+  "compilerOptions": {
+    "target": "ES2020", 
+    "module": "commonjs", 
+    "rootDir": "./", 
+    "outDir": "./dist", 
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true, 
+    "skipLibCheck": true 
+  }
+}
+
+############################## FIN DEL ARCHIVO: tsconfig.json ##################################
+
+############################## INICIO DEL ARCHIVO: types\express\index.d.ts ##############################
+
+import { IJwtPayload } from '../../middleware/auth.middleware';
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    user?: IJwtPayload;
+  }
+}
+
+############################## FIN DEL ARCHIVO: types\express\index.d.ts ##################################
+
+############################## INICIO DEL ARCHIVO: typescript_errors.txt ##############################
+
+Reporte de Errores de TypeScript para el proyecto: C:\Users\LAPTOP\Desktop\Work\Jello-App\Jello-Backend
+Generado el: 26/9/2025, 5:35:05
+================================================================================
+
+Listado de errores encontrados:
+
+tests/projects.test.ts(19,18): error TS18046: 'savedUser._id' is of type 'unknown'.
+tests/task&comment.test.ts(15,18): error TS18046: 'user._id' is of type 'unknown'.
+tests/task&comment.test.ts(21,21): error TS18046: 'project._id' is of type 'unknown'.
+
+
+############################## FIN DEL ARCHIVO: typescript_errors.txt ##################################

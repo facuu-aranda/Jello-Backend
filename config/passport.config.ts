@@ -1,8 +1,8 @@
-// config/passport.config.ts
+
 import passport from 'passport';
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from 'passport-google-oauth20';
 import { Strategy as GitHubStrategy, Profile as GitHubProfile } from 'passport-github2';
-import User from '../models/User.model';
+import { User } from '../models/User.model'; 
 import { IJwtPayload } from '../middleware/auth.middleware';
 
 // --- Estrategia de Google ---

@@ -1,3 +1,4 @@
+// models/Activity.model.ts
 import mongoose, { Schema, Document } from 'mongoose';
 import { IUser } from './User.model';
 import { IProject } from './Project.model';
@@ -5,11 +6,13 @@ import { ITask } from './Task.model';
 
 export interface IActivity extends Document {
   type: 'task_created' | 'comment_added' | 'user_joined' | 'task_status_changed';
-  user: IUser['_id'];       // Quién realizó la acción
-  project: IProject['_id']; // En qué proyecto ocurrió
-  task?: ITask['_id'];      // A qué tarea está asociada (si aplica)
-  meta?: object;          // Para guardar datos extra (ej: el estado anterior y nuevo de una tarea)
-  text: string;           // Un texto descriptivo generado
+  user: IUser['_id'];
+  project: IProject['_id'];
+  task?: ITask['_id'];
+  meta?: object;
+  text: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const ActivitySchema: Schema<IActivity> = new Schema({
@@ -18,28 +21,11 @@ const ActivitySchema: Schema<IActivity> = new Schema({
     enum: ['task_created', 'comment_added', 'user_joined', 'task_status_changed'],
     required: true,
   },
-  user: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
-  project: {
-    type: Schema.Types.ObjectId,
-    ref: 'Project',
-    required: true,
-    index: true,
-  },
-  task: {
-    type: Schema.Types.ObjectId,
-    ref: 'Task',
-  },
-  meta: {
-    type: Schema.Types.Mixed, // Permite guardar cualquier objeto
-  },
-  text: { // Este campo lo generaremos en los controladores para la UI
-    type: String,
-    required: true,
-  }
+  user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true, index: true },
+  task: { type: Schema.Types.ObjectId, ref: 'Task' },
+  meta: { type: Schema.Types.Mixed },
+  text: { type: String, required: true }
 }, { timestamps: true });
 
-export default mongoose.model<IActivity>('Activity', ActivitySchema);
+export const Activity = mongoose.model<IActivity>('Activity', ActivitySchema);

@@ -15,8 +15,9 @@ import todoRoutes from './routes/todo.routes';
 import './config/passport.config';
 import activityRoutes from './routes/activity.routes';
 import searchRoutes from './routes/search.routes';
+import assistantRoutes from './routes/assistant.routes'; 
 
-const app = express();
+export const app = express();
 
 app.use(cors());
 app.use(express.json());
@@ -26,11 +27,11 @@ if (!mongoUri) {
   console.error('❌ FATAL ERROR: MONGO_URI no está definida en el archivo .env');
   process.exit(1);
 }
-
+if (process.env.NODE_ENV !== 'test') {
 mongoose.connect(mongoUri)
   .then(() => console.log('✅ Conectado a MongoDB'))
   .catch(err => console.error('❌ Error al conectar a MongoDB:', err));
-
+}
 app.use(passport.initialize());
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
@@ -42,6 +43,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/todos', todoRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/search', searchRoutes); 
+app.use('/api/assistant', assistantRoutes);
 
 app.get('/', (req: Request, res: Response) => {
   res.send('¡La API está funcionando correctamente con TypeScript!');

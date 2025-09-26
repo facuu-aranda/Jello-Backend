@@ -1,6 +1,6 @@
 // controllers/personalTodo.controller.ts
 import { Request, Response } from 'express';
-import PersonalTodo from '../models/PersonalTodo.model';
+import { Todo as PersonalTodo } from '../models/Todo.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
 export const getTodos = async (req: Request, res: Response) => {

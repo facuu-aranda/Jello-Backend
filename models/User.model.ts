@@ -1,53 +1,69 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+// NUEVO: Definimos la interfaz para la configuración del usuario
+export interface IUserSettings {
+  notifications: {
+    tasks: { email: boolean; push: boolean; inApp: boolean };
+    meetings: { email: boolean; push: boolean; inApp: boolean };
+    team: { email: boolean; push: boolean; inApp: boolean };
+    mentions: { email: boolean; push: boolean; inApp: boolean };
+  };
+  appearance: {
+    theme: 'light' | 'dark' | 'system';
+    accentColor: string;
+    animations: boolean;
+  };
+}
+
+// Interfaz actualizada para incluir la configuración
 export interface IUser extends Document {
   name: string;
   email: string;
+  password?: string;
   githubId?: string;
   googleId?: string;
-  password?: string;
-  avatarUrl?: string;
-  bannerUrl?: string;
-  bio?: string;
-  jobTitle?: string;
-  timezone?: string;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  bio: string | null;
+  jobTitle: string | null;
+  timezone: string | null;
   skills: string[];
-  aiBotName: string;
-  aiBotPrompt: string;
+  settings?: IUserSettings; // <-- NUEVO CAMPO
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
-  personalTodoStatuses: { name: string, color: string }[]; 
 }
 
 const UserSchema: Schema<IUser> = new Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, lowercase: true },
+  password: { type: String, required: false, select: false },
   githubId: { type: String, unique: true, sparse: true },
   googleId: { type: String, unique: true, sparse: true },
-  password: { type: String, required: false, select: false },
-  avatarUrl: { type: String, default: '/public/assets/Jelli-avatar.png' },
+  avatarUrl: { type: String, default: null },
   bannerUrl: { type: String, default: null },
-  bio: { type: String, default: '' },
-  jobTitle: { type: String, default: '' },
-  timezone: { type: String, default: '' },
+  bio: { type: String, default: null },
+  jobTitle: { type: String, default: null },
+  timezone: { type: String, default: null },
   skills: { type: [String], default: [] },
+  
+  settings: {
+    notifications: {
+        tasks: { email: Boolean, push: Boolean, inApp: Boolean },
+        meetings: { email: Boolean, push: Boolean, inApp: Boolean },
+        team: { email: Boolean, push: Boolean, inApp: Boolean },
+        mentions: { email: Boolean, push: Boolean, inApp: Boolean },
+    },
+    appearance: {
+        theme: String,
+        accentColor: String,
+        animations: Boolean,
+    }
+  },
 
-  aiBotName: { type: String, default: 'Mi Asistente Personal' },
-  aiBotPrompt: { type: String, default: 'Eres un asistente personal experto en productividad.' },
   passwordResetToken: String,
   passwordResetExpires: Date,
-  personalTodoStatuses: {
-    type: [{
-      name: { type: String, required: true },
-      color: { type: String, required: true }
-    }],
-    default: [
-      { name: 'Pendiente', color: '#64748b' },
-      { name: 'Completado', color: '#22c55e' }
-    ]
-  }
 }, { timestamps: true });
 
 UserSchema.pre<IUser>('save', async function(next) {
@@ -60,7 +76,9 @@ UserSchema.pre<IUser>('save', async function(next) {
 });
 
 UserSchema.methods.comparePassword = function(candidatePassword: string): Promise<boolean> {
+  if (!this.password) return Promise.resolve(false);
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-export default mongoose.model<IUser>('User', UserSchema);
+// Exportación nombrada
+export const User = mongoose.model<IUser>('User', UserSchema);

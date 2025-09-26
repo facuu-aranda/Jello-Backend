@@ -1,104 +1,114 @@
-// controllers/user.controller.ts
 import { Request, Response } from 'express';
-import User from '../models/User.model';
-import PersonalTodo from '../models/PersonalTodo.model';
+import { User } from '../models/User.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
-export const updateAiProfile = async (req: Request, res: Response) => {
-  try {
-    const { aiBotName, aiBotPrompt } = req.body;
-    const userId = (req.user as IJwtPayload).id;
-
-    const updateData: { aiBotName?: string; aiBotPrompt?: string } = {};
-    if (aiBotName) updateData.aiBotName = aiBotName;
-    if (aiBotPrompt) updateData.aiBotPrompt = aiBotPrompt;
-
-    const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
-
-    res.json({
-      message: "Perfil de IA actualizado con éxito.",
-      aiBotName: updatedUser?.aiBotName,
-      aiBotPrompt: updatedUser?.aiBotPrompt
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-
-export const updateProfile = async (req: Request, res: Response) => {
-  try {
-    const userId = (req.user as IJwtPayload).id;
-    
-    // Obtenemos los nuevos campos del body de la petición
-    const { name, avatarUrl, bannerUrl, bio, jobTitle, timezone, skills } = req.body;
-
-    // Construimos el objeto de actualización solo con los campos que se envían
-    const updateData: { [key: string]: any } = {};
-    if (name) updateData.name = name;
-    if (avatarUrl) updateData.avatarUrl = avatarUrl;
-    if (bannerUrl) updateData.bannerUrl = bannerUrl;
-    if (bio) updateData.bio = bio;
-    if (jobTitle) updateData.jobTitle = jobTitle;
-    if (timezone) updateData.timezone = timezone;
-    if (skills) updateData.skills = skills; // skills debe ser un array de strings
-
-    const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true })
-        .select('-password'); // Excluimos el password de la respuesta
-
-    if (!updatedUser) {
-        return res.status(404).json({ message: "Usuario no encontrado." });
-    }
-
-    res.json(updatedUser);
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-export const updatePersonalTodoStatuses = async (req: Request, res: Response) => {
-  try {
-    const { statuses } = req.body; 
-    const userId = (req.user as IJwtPayload).id;
-
-    if (!Array.isArray(statuses)) {
-      return res.status(400).json({ message: 'Se esperaba un array de estados.' });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      userId, 
-      { personalTodoStatuses: statuses }, 
-      { new: true, runValidators: true }
-    );
-
-    res.json(user?.personalTodoStatuses);
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-export const getPersonalContextForAI = async (req: Request, res: Response) => {
+// GET /api/users/me
+// Obtiene el perfil completo del usuario autenticado.
+export const getMyProfile = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        if (!userId) return res.status(401).json({ message: "Usuario no autenticado." });
-
-        const [user, todos] = await Promise.all([
-            User.findById(userId).select('personalTodoStatuses'),
-            PersonalTodo.find({ owner: userId }).sort({ createdAt: -1 })
-        ]);
-
-        if (!user) return res.status(404).json({ message: "Usuario no encontrado." });
-
-        const context = {
-            customStatuses: user.personalTodoStatuses,
-            todos: todos.map(t => ({
-                title: t.title,
-                status: t.status,
-                createdAt: t.createdAt,
-            }))
-        };
-        res.json(context);
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+        res.json({
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            avatarUrl: user.avatarUrl,
+            bannerUrl: user.bannerUrl,
+            title: user.jobTitle,
+            bio: user.bio,
+            timezone: user.timezone,
+            skills: user.skills,
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// PUT /api/users/me/profile o /api/users/me
+// Actualiza el perfil del usuario autenticado.
+export const updateProfile = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        // El body puede contener cualquier subconjunto de los campos del perfil
+        const updatedUser = await User.findByIdAndUpdate(userId, req.body, { new: true });
+
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+        res.json({
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            avatarUrl: updatedUser.avatarUrl,
+            bannerUrl: updatedUser.bannerUrl,
+            title: updatedUser.jobTitle,
+            bio: updatedUser.bio,
+            timezone: updatedUser.timezone,
+            skills: updatedUser.skills,
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// POST /api/users/me/avatar
+// Sube una nueva imagen de avatar para el usuario.
+export const uploadAvatar = async (req: Request, res: Response) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No se subió ningún archivo." });
+        }
+        const userId = (req.user as IJwtPayload).id;
+        const avatarUrl = req.file.path; // URL de Cloudinary
+
+        await User.findByIdAndUpdate(userId, { avatarUrl });
+
+        res.status(200).json({ url: avatarUrl });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// POST /api/users/me/banner
+// Sube una nueva imagen de banner para el usuario.
+export const uploadBanner = async (req: Request, res: Response) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No se subió ningún archivo." });
+        }
+        const userId = (req.user as IJwtPayload).id;
+        const bannerUrl = req.file.path; // URL de Cloudinary
+
+        await User.findByIdAndUpdate(userId, { bannerUrl });
+
+        res.status(200).json({ url: bannerUrl });
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+    }
+};
+
+// PUT /api/users/me/settings
+// Actualiza la configuración de apariencia y notificaciones del usuario.
+export const updateUserSettings = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        const settings = req.body;
+
+        const updatedUser = await User.findByIdAndUpdate(
+            userId, 
+            { settings }, 
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+
+        res.status(200).json(updatedUser.settings);
+    } catch (error) {
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };

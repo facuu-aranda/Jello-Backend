@@ -1,4 +1,4 @@
-import Activity, { IActivity } from '../models/Activity.model';
+import { Activity, IActivity } from '../models/Activity.model';
 
 type ActivityLogOptions = {
     type: IActivity['type'];

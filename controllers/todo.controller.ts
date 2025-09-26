@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import Todo from '../models/Todo.model';
+import { Todo } from '../models/Todo.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
 // GET /api/todos - Obtiene todos los 'todos' del usuario logueado

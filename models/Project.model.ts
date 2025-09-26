@@ -1,10 +1,6 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import { IUser } from './User.model'; 
-
-interface IKanbanColumn {
-  name: string;
-  color: string;
-}
+import { IUser } from './User.model';
+import { ITask } from './Task.model';
 
 interface IProjectMember {
   user: IUser['_id'];
@@ -13,32 +9,26 @@ interface IProjectMember {
 
 export interface IProject extends Document {
   name: string;
-  description?: string;
-  avatarUrl?: string; 
-  bannerUrl?: string; 
-  techStack: string[];
-  startDate: Date;
-  estimatedEndDate?: Date;
-  endDate?: Date;
+  description: string;
+  color: string;
+  dueDate?: Date;
   owner: IUser['_id'];
+  projectImageUrl?: string;
+  bannerImageUrl?: string;
   members: IProjectMember[];
-  kanbanColumns: IKanbanColumn[];
-  allowWorkerEstimation: boolean;
-  aiBotName: string;
-  aiBotPrompt: string;
+  tasks: ITask['_id'][]; // Campo para las tareas
 }
 
 const ProjectSchema: Schema<IProject> = new Schema({
   name: { type: String, required: true, trim: true },
-  description: { type: String },
-  avatarUrl: { type: String, default: null },
-  bannerUrl: { type: String, default: null },
-  techStack: [{ type: String, trim: true }],
-  startDate: { type: Date, default: Date.now },
-  estimatedEndDate: { type: Date },
-  endDate: { type: Date, default: null },
-   owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  description: { type: String, required: true },
+  color: { type: String, required: true },
+  dueDate: { type: Date },
+  owner: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  projectImageUrl: { type: String },
+  bannerImageUrl: { type: String },
   members: [{
+    _id: false,
     user: { type: Schema.Types.ObjectId, ref: 'User' },
     role: {
       type: String,
@@ -46,20 +36,8 @@ const ProjectSchema: Schema<IProject> = new Schema({
       default: 'member'
     }
   }],
-  kanbanColumns: {
-    type: [{
-      name: { type: String, required: true },
-      color: { type: String, default: '#4D4D4D' }
-    }],
-    default: [
-      { name: 'Por Hacer', color: '#4D4D4D' },
-      { name: 'En Progreso', color: '#2D87C9' },
-      { name: 'Hecho', color: '#3E9D4F' }
-    ]
-  },
-  allowWorkerEstimation: { type: Boolean, default: false },
-  aiBotName: { type: String, default: 'Asistente del Proyecto' },
-  aiBotPrompt: { type: String, default: 'Eres un asistente experto en gestión de proyectos.' },
+  tasks: [{ type: Schema.Types.ObjectId, ref: 'Task' }] // Campo para las tareas
 }, { timestamps: true });
 
-export default mongoose.model<IProject>('Project', ProjectSchema);
+// Exportación nombrada
+export const Project = mongoose.model<IProject>('Project', ProjectSchema);

@@ -1,10 +1,11 @@
-// controllers/project.controller.ts
 import { Request, Response } from 'express';
-import Project from '../models/Project.model';
-import User from '../models/User.model';
-import Task from '../models/Task.model';
-import Notification from '../models/Notification.model';
-import { IJwtPayload } from '../middleware/auth.middleware'; // <-- 1. IMPORTAMOS NUESTRA INTERFAZ
+import { Project, IProject } from '../models/Project.model';
+import { User, IUser } from '../models/User.model';
+import { Task, ITask } from '../models/Task.model';
+import { Comment } from '../models/Comment.model';
+import { Notification } from '../models/Notification.model';
+import { IJwtPayload } from '../middleware/auth.middleware';
+import mongoose from 'mongoose';
 
 // Helper para asegurar el tipo de req.user
 const getTypedUser = (req: Request): IJwtPayload => {
@@ -14,65 +15,126 @@ const getTypedUser = (req: Request): IJwtPayload => {
 // Crear un nuevo proyecto
 export const createProject = async (req: Request, res: Response) => {
   try {
-    const { name, description, techStack, allowWorkerEstimation } = req.body;
-    const ownerId = getTypedUser(req)?.id; // <-- 2. USAMOS EL TIPO CORRECTO
+    const { name, description, color, members, dueDate } = JSON.parse(req.body.data);
+    const ownerId = getTypedUser(req)?.id;
+
     if (!ownerId) {
       return res.status(401).json({ message: 'Usuario no autenticado.' });
     }
 
-    const newProject = new Project({
+    const newProjectData: any = {
       name,
       description,
-      techStack,
-      allowWorkerEstimation,
+      color,
+      dueDate,
       owner: ownerId,
-      members: [{ user: ownerId, role: 'admin' }]
-    });
+    };
 
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    if (files.projectImage) {
+        newProjectData.projectImageUrl = files.projectImage[0].path;
+    }
+    if (files.bannerImage) {
+        newProjectData.bannerImageUrl = files.bannerImage[0].path;
+    }
+
+    const initialMembers = members?.map((m: { user: string, role: string }) => ({
+        user: m.user,
+        role: m.role || 'member'
+    })) || [];
+
+    const ownerInMembers = initialMembers.some((m: { user: string }) => m.user === ownerId);
+    if (!ownerInMembers) {
+        initialMembers.push({ user: ownerId, role: 'admin' });
+    }
+    newProjectData.members = initialMembers;
+    
+    const newProject = new Project(newProjectData);
     await newProject.save();
-    res.status(201).json(newProject);
+    
+    const populatedProject = await newProject.populate('members.user', 'name avatarUrl');
+    
+    // Devolvemos el proyecto en el formato ProjectSummary esperado
+    const response = {
+        // CORRECCIÓN: Se castea 'populatedProject' a 'any' para acceder a '_id'
+        id: (populatedProject as any)._id.toString(),
+        name: populatedProject.name,
+        description: populatedProject.description,
+        color: populatedProject.color,
+        progress: 0,
+        members: populatedProject.members.map((member: any) => ({
+            id: member.user._id,
+            name: member.user.name,
+            avatarUrl: member.user.avatarUrl
+        })),
+        // CORRECCIÓN: Se castea 'populatedProject' a 'any' para acceder a 'owner'
+        isOwner: (populatedProject as any).owner.toString() === ownerId,
+        dueDate: populatedProject.dueDate ? populatedProject.dueDate.toISOString() : null,
+        totalTasks: 0,
+        completedTasks: 0,
+    }
+
+    res.status(201).json(response);
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
 };
 
-// Obtener todos los proyectos del usuario (donde es miembro)
+
+
+// MODIFICADO: Obtener todos los proyectos del usuario
 export const getAllUserProjects = async (req: Request, res: Response) => {
     try {
-      const userId = getTypedUser(req)?.id;
-      const projects = await Project.find({ 'members.user': userId }).populate('owner', 'name email');
-      res.json(projects);
+        const userId = getTypedUser(req)?.id;
+        const filter = req.query.filter as 'owned' | 'working' | undefined;
+
+        const query: mongoose.FilterQuery<IProject> = { 'members.user': userId };
+
+        // Lógica de filtrado
+        if (filter === 'owned') {
+            query.owner = userId;
+        } else if (filter === 'working') {
+            query.owner = { $ne: userId };
+        }
+      
+        const projectsData = await Project.find(query)
+            .populate('owner', 'name email')
+            .populate('members.user', 'name avatarUrl')
+            .lean();
+
+        const projectsWithProgress = await Promise.all(projectsData.map(async (project) => {
+            const tasks = await Task.find({ project: project._id });
+            const totalTasks = tasks.length;
+            const completedTasks = tasks.filter((t) => t.status === 'done').length;
+            const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+            
+            const formattedMembers = project.members.map(member => ({
+                id: (member.user as any)._id,
+                name: (member.user as any).name,
+                avatarUrl: (member.user as any).avatarUrl,
+            }));
+
+            return {
+              id: project._id.toString(),
+              name: project.name,
+              description: project.description,
+              color: project.color,
+              progress: Math.round(progress),
+              members: formattedMembers,
+              isOwner: (project.owner as any)._id.toString() === userId,
+              dueDate: project.dueDate ? project.dueDate.toISOString() : null,
+              totalTasks,
+              completedTasks,
+            };
+        }));
+
+        res.json(projectsWithProgress);
     } catch (error) {
       res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
-// Obtener solo los proyectos que el usuario posee
-export const getOwnedProjects = async (req: Request, res: Response) => {
-    try {
-      const userId = getTypedUser(req)?.id;
-      const projects = await Project.find({ owner: userId }).populate('owner', 'name email');
-      res.json(projects);
-    } catch (error) {
-      res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-    }
-};
-  
-// Obtener solo los proyectos en los que el usuario es miembro (pero no dueño)
-export const getWorkingProjects = async (req: Request, res: Response) => {
-    try {
-      const userId = getTypedUser(req)?.id;
-      const projects = await Project.find({ 
-          owner: { $ne: userId },
-          'members.user': userId
-      }).populate('owner', 'name email');
-      res.json(projects);
-    } catch (error) {
-      res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-    }
-};
-
-// Obtener un solo proyecto por su ID
+// MODIFICADO: Obtener un solo proyecto por su ID
 export const getProjectById = async (req: Request, res: Response) => {
   try {
     const { projectId } = req.params;
@@ -80,18 +142,88 @@ export const getProjectById = async (req: Request, res: Response) => {
 
     const project = await Project.findById(projectId)
       .populate('owner', 'name email')
-      .populate('members.user', 'name email avatarUrl');
-
+      .populate({
+          path: 'members',
+          populate: {
+              path: 'user',
+              select: 'name email avatarUrl'
+          }
+      });
+      
     if (!project) {
       return res.status(404).json({ message: 'Proyecto no encontrado.' });
     }
 
-    const isMember = project.members.some(member => (member.user as any)?._id.equals(userId));
+    const isMember = project.members.some(member => (member.user as any)._id.equals(userId));
     if (!isMember) {
       return res.status(403).json({ message: 'Acción no autorizada.' });
     }
+    
+    // CORRECCIÓN: Se castea 'project' a 'any' para acceder a '_id' de forma segura.
+    const tasks = await Task.find({ project: (project as any)._id })
+      .populate('assignees', 'name avatarUrl')
+      .populate('labels')
+      .lean();
 
-    res.json(project);
+    const tasksByStatus = {
+        todo: [] as any[],
+        'in-progress': [] as any[],
+        review: [] as any[],
+        done: [] as any[],
+    };
+
+    for (const task of tasks) {
+        const formattedTask = {
+            id: task._id.toString(),
+            title: task.title,
+            priority: task.priority,
+            labels: task.labels.map((label: any) => ({
+                id: label._id.toString(),
+                name: label.name,
+                color: label.color
+            })),
+            assignees: task.assignees.map((assignee: any) => ({
+                id: assignee._id.toString(),
+                name: assignee.name,
+                avatarUrl: assignee.avatarUrl
+            })),
+            dueDate: task.dueDate ? task.dueDate.toISOString() : null,
+            subtasks: {
+                total: task.subtasks.length,
+                completed: task.subtasks.filter(st => st.completed).length
+            },
+            commentCount: await Comment.countDocuments({ task: task._id }),
+            attachmentCount: task.attachments.length,
+            // CORRECCIÓN: Se castea 'project' a 'any' para acceder a '_id' de forma segura.
+            projectId: (project as any)._id.toString()
+        };
+        
+        if (tasksByStatus[task.status as keyof typeof tasksByStatus]) {
+            tasksByStatus[task.status as keyof typeof tasksByStatus].push(formattedTask);
+        }
+    }
+    
+    const projectDetails = {
+        id: (project as any)._id.toString(),
+        name: project.name,
+        description: project.description,
+        color: project.color,
+        progress: 0,
+        members: project.members.map((member: any) => ({
+            id: member.user._id,
+            name: member.user.name,
+            avatarUrl: member.user.avatarUrl
+        })),
+        isOwner: (project.owner as any)._id.toString() === userId,
+        dueDate: project.dueDate ? project.dueDate.toISOString() : null,
+        totalTasks: tasks.length,
+        completedTasks: tasks.filter(t => t.status === 'done').length,
+        tasksByStatus: tasksByStatus
+    };
+    
+    projectDetails.progress = projectDetails.totalTasks > 0 ? Math.round((projectDetails.completedTasks / projectDetails.totalTasks) * 100) : 0;
+
+    res.json(projectDetails);
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
@@ -108,13 +240,53 @@ export const updateProject = async (req: Request, res: Response) => {
           return res.status(404).json({ message: 'Proyecto no encontrado.' });
         }
     
-        const member = project.members.find(m => (m.user as any).equals(userId));
-        if ((project.owner as any).toString() !== userId && member?.role !== 'admin') {
+        const member = project.members.find(m => (m.user as any)._id.equals(userId));
+        if ((project.owner as any)._id.toString() !== userId && member?.role !== 'admin') {
           return res.status(403).json({ message: 'Acción no autorizada. Requiere rol de administrador.' });
         }
     
-        const updatedProject = await Project.findByIdAndUpdate(projectId, req.body, { new: true });
-        res.json(updatedProject);
+        const updateData: any = req.body.data ? JSON.parse(req.body.data) : {};
+
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        if (files.projectImage) {
+            updateData.projectImageUrl = files.projectImage[0].path;
+        }
+        if (files.bannerImage) {
+            updateData.bannerImageUrl = files.bannerImage[0].path;
+        }
+
+        const updatedProject = await Project.findByIdAndUpdate(projectId, updateData, { new: true })
+            .populate('members.user', 'name avatarUrl');
+        
+        if (!updatedProject) {
+            return res.status(404).json({ message: 'Proyecto no encontrado.' });
+        }
+        
+        const tasks = await Task.find({ project: (updatedProject as any)._id });
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(t => t.status === 'done').length;
+
+        // Devolvemos el proyecto en el formato ProjectSummary esperado
+        const response = {
+            // CORRECCIÓN: Se castea 'updatedProject' a 'any' para acceder a '_id'
+            id: (updatedProject as any)._id.toString(),
+            name: updatedProject.name,
+            description: updatedProject.description,
+            color: updatedProject.color,
+            progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
+            members: updatedProject.members.map((member: any) => ({
+                id: member.user._id,
+                name: member.user.name,
+                avatarUrl: member.user.avatarUrl
+            })),
+            // CORRECCIÓN: Se castea 'updatedProject' a 'any' para acceder a 'owner'
+            isOwner: (updatedProject as any).owner.toString() === userId,
+            dueDate: updatedProject.dueDate ? updatedProject.dueDate.toISOString() : null,
+            totalTasks: totalTasks,
+            completedTasks: completedTasks,
+        };
+
+        res.json(response);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
@@ -124,22 +296,22 @@ export const updateProject = async (req: Request, res: Response) => {
 export const addMember = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
-        const { email } = req.body;
+        const { userIdToInvite } = req.body; // Cambiado de 'email' a 'userIdToInvite'
         const sender = getTypedUser(req);
         if (!sender) return res.status(401).json({ message: "Usuario no autenticado." });
 
         const project = await Project.findById(projectId);
         if (!project) return res.status(404).json({ message: 'Proyecto no encontrado.' });
 
-        const member = project.members.find(m => (m.user as any).equals(sender.id));
+        const member = project.members.find(m => (m.user as any)._id.equals(sender.id));
         if (!member || member.role !== 'admin') {
           return res.status(403).json({ message: 'Solo los administradores pueden enviar invitaciones.' });
         }
         
-        const memberToAdd = await User.findOne({ email });
-        if (!memberToAdd) return res.status(404).json({ message: 'Usuario no encontrado con ese email.' });
-        
-        if (project.members.some(m => (m.user as any).equals(memberToAdd._id))) {
+        const memberToAdd = await User.findById(userIdToInvite); // Buscamos por ID
+        if (!memberToAdd) return res.status(404).json({ message: 'Usuario a invitar no encontrado.' });
+
+        if (project.members.some(m => (m.user as any)._id.equals(memberToAdd._id))) {
             return res.status(400).json({ message: 'El usuario ya es miembro de este proyecto.' });
         }
 
@@ -160,100 +332,27 @@ export const addMember = async (req: Request, res: Response) => {
     }
 };
 
-// Actualizar las columnas del tablero Kanban
-export const updateColumns = async (req: Request, res: Response) => {
+export const deleteProject = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
         const userId = getTypedUser(req)?.id;
-        const { columns } = req.body;
-    
-        const project = await Project.findById(projectId);
-        if (!project) return res.status(404).json({ message: 'Proyecto no encontrado.' });
 
-        const member = project.members.find(m => (m.user as any).equals(userId));
-        if (!member || member.role !== 'admin') {
-          return res.status(403).json({ message: 'Acción no autorizada.' });
-        }
-    
-        project.kanbanColumns = columns;
-        await project.save();
-        res.json(project.kanbanColumns);
-    } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-    }
-};
-
-// Obtener un contexto completo del proyecto para la IA
-export const getProjectContextForAI = async (req: Request, res: Response) => {
-    try {
-        const { projectId } = req.params;
-        const userId = getTypedUser(req)?.id;
-    
         const project = await Project.findById(projectId);
-        if (!project || !project.members.some(m => (m.user as any).equals(userId))) {
-            return res.status(403).json({ message: 'Acción no autorizada.' });
+
+        if (!project) {
+            return res.status(404).json({ message: 'Proyecto no encontrado.' });
         }
-    
-        const tasks = await Task.find({ project: projectId })
-            .populate('assignee', 'name')
-            .populate('labels', 'name color');
+        if ((project.owner as any).toString() !== userId) {
+            return res.status(403).json({ message: 'Acción no autorizada. Solo el propietario puede eliminar.' });
+        }
+
+        // Eliminación en cascada de tareas
+        await Task.deleteMany({ project: projectId });
         
-        const currentUser = await User.findById(userId);
+        await Project.findByIdAndDelete(projectId);
 
-        const context = {
-            projectName: project.name,
-            projectDescription: project.description,
-            projectAiBotName: project.aiBotName,
-            projectAiBotInitialPrompt: project.aiBotPrompt,
-            techStack: project.techStack,
-            kanbanColumns: project.kanbanColumns,
-            membersCount: project.members.length,
-            userAiBotName: currentUser?.aiBotName,
-            userAiBotPrompt: currentUser?.aiBotPrompt,
-            tasks: tasks.map(t => ({
-                title: t.title,
-                status: t.status,
-                priority: t.priority,
-                assignee: (t.assignee as any)?.name || 'No asignada',
-                labels: (t.labels as any[]).map(l => l.name)
-            }))
-        };
-    
-        res.json(context);
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
-};
-
-export const requestToJoinProject = async (req: Request, res: Response) => {
-  try {
-    const { projectId } = req.params;
-    const sender = req.user as IJwtPayload; // El usuario que hace la solicitud
-
-    const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ message: 'Proyecto no encontrado.' });
-    }
-
-    // Verificar que el usuario no sea ya un miembro
-    if (project.members.some(m => (m.user as any).equals(sender.id))) {
-      return res.status(400).json({ message: 'Ya eres miembro de este proyecto.' });
-    }
-
-    // Crear una notificación para el dueño del proyecto
-    const newNotification = new Notification({
-      recipient: project.owner,
-      sender: sender.id,
-      type: 'collaboration_request',
-      status: 'pending',
-      project: projectId,
-      text: `"${sender.name}" ha solicitado unirse a tu proyecto "${project.name}".`,
-      link: `/project/${projectId}/settings/members` // Link a la página de miembros
-    });
-    await newNotification.save();
-
-    res.status(201).json({ message: 'Solicitud enviada con éxito.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
 };

@@ -1,74 +1,142 @@
 import { Request, Response } from 'express';
-import Task from '../models/Task.model';
-import Project from '../models/Project.model';
-import Activity from '../models/Activity.model';
-import User from '../models/User.model';
-import { createActivityLog } from '../services/activity.service';
+import { Task, ITask } from '../models/Task.model';
+import { Project } from '../models/Project.model';
+import { Notification } from '../models/Notification.model';
+import { Activity } from '../models/Activity.model';
+import { Comment } from '../models/Comment.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
+import mongoose from 'mongoose';
 
-const getTypedUser = (req: Request): IJwtPayload => {
-    return req.user as IJwtPayload;
-}
+// =================================================================================
+// Helper para formatear la respuesta de una tarea al formato TaskDetails
+// =================================================================================
+const formatTaskDetails = async (task: ITask) => {
+    // Populamos los campos que puedan no estarlo
+    const populatedTask = await task.populate([
+        { path: 'assignees', select: 'name avatarUrl' },
+        { path: 'labels' }
+    ]);
+
+    // Buscamos los comentarios asociados a la tarea
+    const comments = await Comment.find({ task: (populatedTask as any)._id })
+        .populate('author', 'name avatarUrl')
+        .sort({ createdAt: 'desc' });
+
+    // Casteamos populatedTask a 'any' para acceder a sus propiedades de forma segura.
+    const populatedTaskAny = populatedTask as any;
+
+    // Mapeamos todos los campos al formato esperado por el frontend
+    return {
+        id: populatedTaskAny._id.toString(),
+        title: populatedTaskAny.title,
+        description: populatedTaskAny.description,
+        status: populatedTaskAny.status,
+        priority: populatedTaskAny.priority,
+        dueDate: populatedTaskAny.dueDate ? populatedTaskAny.dueDate.toISOString() : null,
+        projectId: populatedTaskAny.project._id ? populatedTaskAny.project._id.toString() : populatedTaskAny.project.toString(),
+        labels: populatedTaskAny.labels.map((label: any) => ({
+            id: label._id.toString(),
+            name: label.name,
+            color: label.color,
+        })),
+        assignees: populatedTaskAny.assignees.map((assignee: any) => ({
+            id: assignee._id.toString(),
+            name: assignee.name,
+            avatarUrl: assignee.avatarUrl,
+        })),
+        subtasks: populatedTaskAny.subtasks.map((subtask: any) => ({
+            id: subtask._id.toString(),
+            text: subtask.text,
+            completed: subtask.completed,
+        })),
+        attachments: populatedTaskAny.attachments.map((attachment: any) => ({
+            id: attachment._id.toString(),
+            name: attachment.name,
+            url: attachment.url,
+            size: attachment.size,
+            type: attachment.type,
+        })),
+        comments: comments.map((comment: any) => ({
+            id: comment._id.toString(),
+            author: {
+                id: comment.author._id.toString(),
+                name: comment.author.name,
+                avatarUrl: comment.author.avatarUrl,
+            },
+            content: comment.content,
+            timestamp: comment.createdAt.toISOString(),
+        })),
+    };
+};
+
+// =================================================================================
+// Funciones del controlador
+// =================================================================================
+
+// Obtener una tarea por su ID
+export const getTaskById = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+
+        const task = await Task.findById(taskId).populate('project');
+
+        if (!task) {
+            return res.status(404).json({ error: "Tarea no encontrada." });
+        }
+        
+        const project = task.project as any;
+        if (!project.members.some((m: any) => m.user.equals(userId))) {
+            return res.status(403).json({ error: "Acción no autorizada." });
+        }
+
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
+
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
 
 // Crear una nueva tarea
 export const createTask = async (req: Request, res: Response) => {
   try {
-    const { projectId } = req.params;
-    const { title, description } = req.body;
-    const user = getTypedUser(req);
-    if (!user) return res.status(401).json({ message: 'Usuario no autenticado.' });
+    const { title, description, priority, status, dueDate, assignees, labels, project } = req.body;
+    const user = req.user as IJwtPayload;
 
-    const project = await Project.findById(projectId);
-    if (!project || !project.members.some(m => (m.user as any).equals(user.id))) {
-      return res.status(403).json({ message: 'Acción no autorizada.' });
-    }
-
-    const newTask = new Task({
-      title,
-      description,
-      project: projectId,
-    });
+    const newTask = new Task({ title, description, priority, status, dueDate, assignees, labels, project });
     await newTask.save();
+    
+    await new Activity({
+        type: 'task_created',
+        user: user.id,
+        project: project,
+        task: newTask._id,
+        text: `${user.name} creó la tarea "${title}".`
+    }).save();
 
-    await createActivityLog({
-      type: 'task_created',
-      user: user.id,
-      project: projectId,
-      task: (newTask._id as any).toString(), // <-- CORRECCIÓN 1
-      text: `${user.name} ha creado la tarea "${newTask.title}".` // <-- CORRECCIÓN 2
-    });
+    const formattedTask = await formatTaskDetails(newTask);
+    res.status(201).json(formattedTask);
 
-    res.status(201).json(newTask);
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
 };
 
-// Obtener todas las tareas de un proyecto (con filtros)
+// Obtener todas las tareas de un proyecto
 export const getTasksForProject = async (req: Request, res: Response) => {
   try {
     const { projectId } = req.params;
-    const userId = getTypedUser(req)?.id;
-    const { status, assignee, priority, search } = req.query;
+    const user = req.user as IJwtPayload;
 
     const project = await Project.findById(projectId);
-    if (!project || !project.members.some(m => (m.user as any).equals(userId))) {
-      return res.status(403).json({ message: 'Acción no autorizada.' });
+    if (!project || !project.members.some(m => (m.user as any).equals(user.id))) {
+        return res.status(403).json({ message: "Acción no autorizada." });
     }
 
-    let filter: any = { project: projectId };
-    if (status) filter.status = status;
-    if (assignee) filter.assignee = assignee;
-    if (priority) filter.priority = priority;
-    if (search) {
-      const searchRegex = new RegExp(search as string, 'i');
-      filter.$or = [{ title: searchRegex }, { description: searchRegex }];
-    }
-
-    const tasks = await Task.find(filter)
-      .populate('assignee', 'name email avatarUrl')
-      .populate('labels', 'name color');
-      
+    const tasks = await Task.find({ project: projectId })
+      .populate('assignees', 'name avatar')
+      .populate('labels');
     res.json(tasks);
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
@@ -79,58 +147,47 @@ export const getTasksForProject = async (req: Request, res: Response) => {
 export const updateTask = async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const user = getTypedUser(req);
     const updateData = req.body;
-
-    if (!user) {
-        return res.status(401).json({ message: 'Usuario no autenticado.' });
-    }
+    const user = req.user as IJwtPayload;
 
     const task = await Task.findById(taskId).populate('project');
-    if (!task || !task.project) {
-      return res.status(404).json({ message: 'Tarea o proyecto asociado no encontrado.' });
-    }
-    
-    const project = task.project as any;
-    
-    const member = project.members.find((m: any) => m.user.equals(user.id));
-    if (!member) {
-      return res.status(403).json({ message: 'Acción no autorizada. No eres miembro de este proyecto.' });
-    }
-
-    if (updateData.estimatedTime) {
-      if (member.role === 'member' && !project.allowWorkerEstimation) {
-        return res.status(403).json({ message: 'No tienes permiso para estimar tareas en este proyecto.' });
-      }
-    }
-
-    if (updateData.assignee && !project.members.some((m: any) => m.user.equals(updateData.assignee))) {
-        return res.status(400).json({ message: 'El usuario asignado no es miembro del proyecto.' });
-    }
-
-    if (updateData.assignee && !task.assignee) {
-      updateData.assignmentDate = new Date();
-    }
-    if (updateData.status === 'Hecho' && task.status !== 'Hecho') {
-      updateData.completionDate = new Date();
-    } else if (updateData.status && updateData.status !== 'Hecho' && task.status === 'Hecho') {
-      updateData.completionDate = null;
-    }
-
-    
-    if (updateData.status && updateData.status !== task.status) {
-        await createActivityLog({
-            type: 'task_status_changed',
-            user: user.id,
-            project: project._id,
-            task: taskId,
-            text: `${user.name} movió la tarea "${task.title}" de "${task.status}" a "${updateData.status}".`,
-            meta: { from: task.status, to: updateData.status }
-        });
+    if (!task) {
+      return res.status(404).json({ message: 'Tarea no encontrada.' });
     }
 
     const updatedTask = await Task.findByIdAndUpdate(taskId, updateData, { new: true });
-    res.json(updatedTask);
+    if (!updatedTask) {
+      return res.status(404).json({ message: 'No se pudo actualizar la tarea.' });
+    }
+    
+    // Lógica de notificación
+    if (updateData.status && updateData.status !== task.status) {
+      const project = (task.project as any);
+      const recipients = new Set<string>();
+      if (project.owner) {
+        recipients.add(project.owner.toString());
+      }
+      task.assignees.forEach((assigneeId: any) => recipients.add(assigneeId.toString()));
+
+      recipients.delete(user.id);
+
+      for (const recipientId of recipients) {
+        await new Notification({
+            recipient: recipientId,
+            sender: user.id,
+            type: 'comment',
+            status: 'unread',
+            project: project._id,
+            task: task._id,
+            text: `${user.name} actualizó el estado de la tarea "${task.title}" a "${updateData.status}".`,
+            link: `/project/${project._id}`
+        }).save();
+      }
+    }
+    
+    const formattedTask = await formatTaskDetails(updatedTask);
+    res.json(formattedTask);
+    
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
@@ -138,91 +195,81 @@ export const updateTask = async (req: Request, res: Response) => {
 
 // Eliminar una tarea
 export const deleteTask = async (req: Request, res: Response) => {
-  try {
-    const { taskId } = req.params;
-    const userId = getTypedUser(req)?.id;
-
-    const task = await Task.findById(taskId).populate('project');
-    if (!task || !task.project) {
-        return res.status(404).json({ message: 'Tarea o proyecto asociado no encontrado.' });
+    try {
+        const { taskId } = req.params;
+        await Task.findByIdAndDelete(taskId);
+        res.json({ message: 'Tarea eliminada con éxito.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
-
-    if (!(task.project as any).members.some((m: any) => m.user.equals(userId))) {
-      return res.status(403).json({ message: 'Acción no autorizada.' });
-    }
-
-    await Task.findByIdAndDelete(taskId);
-    res.json({ message: 'Tarea eliminada con éxito.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
 };
 
-// --- Sub-tareas ---
+// Añadir una subtarea
 export const addSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
         const { text } = req.body;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
-        
-        task.subtasks.push({ text, isCompleted: false } as any);
+
+        task.subtasks.push({ text, completed: false });
         await task.save();
-        res.status(201).json(task.subtasks);
+
+        const formattedTask = await formatTaskDetails(task);
+        res.status(201).json(formattedTask);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
+// Actualizar una subtarea
 export const updateSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId, subtaskId } = req.params;
-        const { text, isCompleted } = req.body;
+        const { text, completed } = req.body;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
 
         const subtask = (task.subtasks as any).id(subtaskId);
-        if (!subtask) return res.status(404).json({ message: 'Sub-tarea no encontrada.' });
+        if (!subtask) return res.status(404).json({ message: 'Subtarea no encontrada.' });
 
-        if (text) subtask.text = text;
-        if (isCompleted !== undefined) subtask.isCompleted = isCompleted;
+        if (text !== undefined) subtask.text = text;
+        if (completed !== undefined) subtask.completed = completed;
+        
         await task.save();
-        res.json(subtask);
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
+// Eliminar una subtarea
 export const deleteSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId, subtaskId } = req.params;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
 
-        const subtask = (task.subtasks as any).id(subtaskId);
-        if (!subtask) return res.status(404).json({ message: 'Sub-tarea no encontrada.' });
-        
-        subtask.remove();
+        (task.subtasks as any).pull({ _id: subtaskId });
         await task.save();
-        res.json({ message: 'Sub-tarea eliminada.' });
+        
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
+// Obtener tareas asignadas al usuario
 export const getAssignedTasks = async (req: Request, res: Response) => {
-  try {
-    const userId = getTypedUser(req)?.id;
-    if (!userId) {
-      return res.status(401).json({ message: 'Usuario no autenticado.' });
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        const tasks = await Task.find({ assignees: userId })
+            .populate('project', 'name')
+            .populate('labels');
+        res.json(tasks);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
-
-    const tasks = await Task.find({ assignee: userId })
-      .populate('project', 'name color') 
-      .sort({ dueDate: 1 }); 
-
-    res.json(tasks);
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
 };

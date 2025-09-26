@@ -1,10 +1,7 @@
-// controllers/notification.controller.ts
 import { Request, Response } from 'express';
-import Notification from '../models/Notification.model';
-import Project from '../models/Project.model';
+import { Notification } from '../models/Notification.model';
+import { Project } from '../models/Project.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
-import { createActivityLog } from '../services/activity.service';
-import User from '../models/User.model';
 
 export const getNotifications = async (req: Request, res: Response) => {
     try {
@@ -23,31 +20,29 @@ export const getNotifications = async (req: Request, res: Response) => {
 export const respondToNotification = async (req: Request, res: Response) => {
     try {
         const { notificationId } = req.params;
-        const { response } = req.body; // 'accepted' o 'declined'
+        const { response } = req.body;
         const currentUser = req.user as IJwtPayload;
 
         const notification = await Notification.findById(notificationId);
         
-        // La notificación debe existir y el usuario actual debe ser el destinatario
         if (!notification || (notification.recipient as any).toString() !== currentUser.id) {
-            return res.status(403).json({ message: "Acción no autorizada." });
+            return res.status(403).json({ error: "Acción no autorizada." });
         }
         if (notification.status !== 'pending') {
-            return res.status(400).json({ message: "Esta notificación ya ha sido respondida." });
+            return res.status(400).json({ error: "Esta notificación ya ha sido respondida." });
         }
 
         if (response === 'accepted') {
-            // Lógica para añadir al miembro correcto al proyecto
-            let userToadd;
+            let userToAddId;
             if (notification.type === 'invitation') {
-                userToadd = notification.recipient; // Si me invitan, me añaden a mí
+                userToAddId = notification.recipient;
             } else if (notification.type === 'collaboration_request') {
-                userToadd = notification.sender; // Si acepto una solicitud, añado a quien la envió
+                userToAddId = notification.sender;
             }
 
-            if (userToadd && notification.project) {
+            if (userToAddId && notification.project) {
                 await Project.findByIdAndUpdate(notification.project, {
-                    $addToSet: { members: { user: userToadd, role: 'member' } }
+                    $addToSet: { members: { user: userToAddId, role: 'member' } }
                 });
             }
             notification.status = 'accepted';
@@ -58,7 +53,7 @@ export const respondToNotification = async (req: Request, res: Response) => {
         await notification.save();
         res.json(notification);
     } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+        res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
 

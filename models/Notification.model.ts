@@ -5,14 +5,14 @@ import { IProject } from './Project.model';
 import { ITask } from './Task.model';
 
 export interface INotification extends Document {
-  recipient: IUser['_id']; 
-    sender: IUser['_id'];    
+  recipient: IUser['_id'];
+  sender: IUser['_id'];
   type: 'invitation' | 'mention' | 'comment' | 'collaboration_request';
   status: 'pending' | 'accepted' | 'declined' | 'read' | 'unread';
-  project?: IProject['_id']; 
-  task?: ITask['_id'];  
-  text: string;           
-  link: string;          
+  project?: IProject['_id'];
+  task?: ITask['_id'];
+  text: string;
+  link: string;
 }
 
 const NotificationSchema: Schema<INotification> = new Schema({
@@ -20,7 +20,7 @@ const NotificationSchema: Schema<INotification> = new Schema({
   sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   type: {
     type: String,
-    enum: ['invitation', 'mention', 'comment', 'collaboration_request'], // <-- Añade el nuevo tipo
+    enum: ['invitation', 'mention', 'comment', 'collaboration_request'],
     required: true
   },
   status: {
@@ -34,4 +34,4 @@ const NotificationSchema: Schema<INotification> = new Schema({
   link: { type: String, required: true },
 }, { timestamps: true });
 
-export default mongoose.model<INotification>('Notification', NotificationSchema);
+export const Notification = mongoose.model<INotification>('Notification', NotificationSchema);

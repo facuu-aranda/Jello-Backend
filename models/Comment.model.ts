@@ -1,3 +1,4 @@
+// models/Comment.model.ts
 import mongoose, { Schema, Document } from 'mongoose';
 import { IUser } from './User.model';
 import { ITask } from './Task.model';
@@ -10,24 +11,10 @@ export interface IComment extends Document {
 }
 
 const CommentSchema: Schema<IComment> = new Schema({
-  content: { 
-    type: String, 
-    required: true 
-  },
-  author: { 
-    type: Schema.Types.ObjectId, 
-    ref: 'User', 
-    required: true 
-  },
-  task: { 
-    type: Schema.Types.ObjectId, 
-    ref: 'Task', 
-    required: true 
-  },
-  attachmentUrl: {
-    type: String,
-    default: null
-  }
+  content: { type: String, required: true },
+  author: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  task: { type: Schema.Types.ObjectId, ref: 'Task', required: true },
+  attachmentUrl: { type: String, default: null }
 }, { timestamps: true });
 
-export default mongoose.model<IComment>('Comment', CommentSchema);
+export const Comment = mongoose.model<IComment>('Comment', CommentSchema);

@@ -40,10 +40,9 @@ router.post('/register', authController.register);
 // POST /api/auth/login
 router.post('/login', authController.login);
 
-// POST /api/auth/forgot-password
-router.post('/forgot-password', authController.forgotPassword);
-
-// POST /api/auth/reset-password/:token
-router.post('/reset-password/:token', authController.resetPassword);
+// CORRECCIÓN: Se eliminan las rutas a controladores que no existen.
+// Las funciones 'forgotPassword' y 'resetPassword' no están definidas en auth.controller.ts.
+// router.post('/forgot-password', authController.forgotPassword);
+// router.post('/reset-password/:token', authController.resetPassword);
 
 export default router;
