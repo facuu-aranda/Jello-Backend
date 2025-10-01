@@ -1,3 +1,5 @@
+// Archivo: Jello-Backend/controllers/comment.controller.ts
+
 import { Request, Response } from 'express';
 import { Comment } from '../models/Comment.model';
 import { Task } from '../models/Task.model';
@@ -5,11 +7,12 @@ import { User } from '../models/User.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 import { createActivityLog } from '../services/activity.service';
 
-// POST /api/tasks/:taskId/comments
+// --- FUNCIÓN MODIFICADA ---
 export const addComment = async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const { content } = req.body;
+    // El texto del comentario ahora viene de req.body.content
+    const { content } = req.body; 
     const author = req.user as IJwtPayload;
 
     const task = await Task.findById(taskId).populate('project');
@@ -17,14 +20,21 @@ export const addComment = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Tarea no encontrada.' });
     }
 
-    const newComment = new Comment({
+    // Preparamos los datos del nuevo comentario
+    const newCommentData: any = {
       content,
       author: author.id,
       task: taskId
-    });
+    };
+
+    // Si se subió un archivo, añadimos su URL
+    if (req.file) {
+      newCommentData.attachmentUrl = req.file.path;
+    }
+
+    const newComment = new Comment(newCommentData);
     await newComment.save();
     
-    // Registrar actividad
     const project = task.project as any;
     await createActivityLog({
         type: 'comment_added',
@@ -34,7 +44,6 @@ export const addComment = async (req: Request, res: Response) => {
         text: `${author.name} comentó en la tarea "${task.title}".`
     });
 
-    // Poblar el autor para devolver el formato UserSummary
     const populatedComment = await newComment.populate<{ author: { name: string, avatarUrl: string | null } }>('author', 'name avatarUrl');
 
     const responseComment = {
@@ -45,6 +54,7 @@ export const addComment = async (req: Request, res: Response) => {
         avatarUrl: (populatedComment.author as any).avatarUrl
       },
       content: populatedComment.content,
+      attachmentUrl: populatedComment.attachmentUrl, // Devolvemos la URL del adjunto
       timestamp: (populatedComment as any).createdAt
     };
 
@@ -63,7 +73,6 @@ export const deleteComment = async (req: Request, res: Response) => {
             path: 'task',
             populate: { path: 'project' }
         });
-
         if (!comment) {
             return res.status(404).json({ error: 'Comentario no encontrado.' });
         }
@@ -78,7 +87,6 @@ export const deleteComment = async (req: Request, res: Response) => {
 
         await Comment.findByIdAndDelete(commentId);
         res.status(204).send();
-
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }

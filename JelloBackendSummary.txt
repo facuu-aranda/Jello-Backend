@@ -65,10 +65,9 @@ Jello-Backend/
 │   ├── setup.ts
 │   └── task&comment.test.ts
 ├── tsconfig.json
-├── types
-│   └── express
-│       └── index.d.ts
-└── typescript_errors.txt
+└── types
+    └── express
+        └── index.d.ts
 
 
 --------------------------------------------------------------------------------
@@ -11178,18 +11177,3 @@ declare module 'express-serve-static-core' {
 }
 
 ############################## FIN DEL ARCHIVO: types\express\index.d.ts ##################################
-
-############################## INICIO DEL ARCHIVO: typescript_errors.txt ##############################
-
-Reporte de Errores de TypeScript para el proyecto: C:\Users\LAPTOP\Desktop\Work\Jello-App\Jello-Backend
-Generado el: 26/9/2025, 5:35:05
-================================================================================
-
-Listado de errores encontrados:
-
-tests/projects.test.ts(19,18): error TS18046: 'savedUser._id' is of type 'unknown'.
-tests/task&comment.test.ts(15,18): error TS18046: 'user._id' is of type 'unknown'.
-tests/task&comment.test.ts(21,21): error TS18046: 'project._id' is of type 'unknown'.
-
-
-############################## FIN DEL ARCHIVO: typescript_errors.txt ##################################

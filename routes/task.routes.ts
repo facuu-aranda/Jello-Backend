@@ -15,7 +15,8 @@ router.get('/my-tasks', taskController.getAssignedTasks);
 router.get('/:taskId', taskController.getTaskById);
 
 // Comentarios
-router.post('/:taskId/comments', commentController.addComment);
+router.post('/:taskId/comments', uploader.single('attachment'), commentController.addComment);
+
 
 // Subtareas
 router.post('/:taskId/subtasks', taskController.addSubtask);
