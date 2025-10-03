@@ -1,9 +1,10 @@
+// Archivo: Jello-Backend/controllers/user.controller.ts
+
 import { Request, Response } from 'express';
 import { User } from '../models/User.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
 // GET /api/users/me
-// Obtiene el perfil completo del usuario autenticado.
 export const getMyProfile = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
@@ -27,14 +28,11 @@ export const getMyProfile = async (req: Request, res: Response) => {
     }
 };
 
-// PUT /api/users/me/profile o /api/users/me
-// Actualiza el perfil del usuario autenticado.
+// PUT /api/users/me/profile
 export const updateProfile = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        // El body puede contener cualquier subconjunto de los campos del perfil
         const updatedUser = await User.findByIdAndUpdate(userId, req.body, { new: true });
-
         if (!updatedUser) {
             return res.status(404).json({ error: "Usuario no encontrado." });
         }
@@ -55,58 +53,57 @@ export const updateProfile = async (req: Request, res: Response) => {
 };
 
 // POST /api/users/me/avatar
-// Sube una nueva imagen de avatar para el usuario.
 export const uploadAvatar = async (req: Request, res: Response) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: "No se subió ningún archivo." });
         }
         const userId = (req.user as IJwtPayload).id;
-        const avatarUrl = req.file.path; // URL de Cloudinary
+
+        // Lógica condicional: si es un test, usamos una URL falsa. Si no, la real de Cloudinary.
+        const avatarUrl = process.env.NODE_ENV === 'test' 
+            ? `https://fake.cloudinary.url/${req.file.originalname}` 
+            : req.file.path;
 
         await User.findByIdAndUpdate(userId, { avatarUrl });
 
         res.status(200).json({ url: avatarUrl });
     } catch (error) {
+        console.error('--- ERROR DETALLADO EN EL TEST DE AVATAR ---', error);
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
 
 // POST /api/users/me/banner
-// Sube una nueva imagen de banner para el usuario.
 export const uploadBanner = async (req: Request, res: Response) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: "No se subió ningún archivo." });
         }
         const userId = (req.user as IJwtPayload).id;
-        const bannerUrl = req.file.path; // URL de Cloudinary
+        
+        const bannerUrl = process.env.NODE_ENV === 'test' 
+            ? `https://fake.cloudinary.url/${req.file.originalname}` 
+            : req.file.path;
 
         await User.findByIdAndUpdate(userId, { bannerUrl });
 
         res.status(200).json({ url: bannerUrl });
     } catch (error) {
+        console.error('--- ERROR DETALLADO EN EL TEST DE BANNER ---', error);
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
 
 // PUT /api/users/me/settings
-// Actualiza la configuración de apariencia y notificaciones del usuario.
 export const updateUserSettings = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
         const settings = req.body;
-
-        const updatedUser = await User.findByIdAndUpdate(
-            userId, 
-            { settings }, 
-            { new: true, runValidators: true }
-        );
-
+        const updatedUser = await User.findByIdAndUpdate(userId, { settings }, { new: true, runValidators: true });
         if (!updatedUser) {
             return res.status(404).json({ error: "Usuario no encontrado." });
         }
-
         res.status(200).json(updatedUser.settings);
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });

@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-
 import authRoutes from './routes/auth.routes';
 import projectRoutes from './routes/project.routes';
 import taskRoutes from './routes/task.routes';
@@ -16,6 +15,7 @@ import './config/passport.config';
 import activityRoutes from './routes/activity.routes';
 import searchRoutes from './routes/search.routes';
 import assistantRoutes from './routes/assistant.routes'; 
+import commentRoutes from './routes/comment.routes';
 
 export const app = express();
 
@@ -44,12 +44,18 @@ app.use('/api/todos', todoRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/search', searchRoutes); 
 app.use('/api/assistant', assistantRoutes);
+app.use('/api/comments', commentRoutes); 
 
 app.get('/', (req: Request, res: Response) => {
   res.send('¡La API está funcionando correctamente con TypeScript!');
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+
+const server = app.listen(PORT, () => {
+  if (process.env.NODE_ENV !== 'test') {
+    console.log(`🚀 Servidor corriendo en el puerto ${PORT}`);
+  }
 });
+
+export { server };

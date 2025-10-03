@@ -8,20 +8,14 @@ describe('Endpoints de Proyectos - /api/projects', () => {
     let token: string;
     let userId: string;
 
-    // Antes de cada prueba, creamos un usuario y obtenemos su token
     beforeEach(async () => {
-        const user = new User({
-            name: 'Project User',
-            email: 'project@test.com',
-            password: 'password123'
-        });
+        const user = new User({ name: 'Project User', email: 'project@test.com', password: 'password123' });
         const savedUser = await user.save();
         userId = (savedUser as any)._id.toString();
 
         const response = await request(app)
             .post('/api/auth/login')
             .send({ email: 'project@test.com', password: 'password123' });
-        
         token = response.body.token;
     });
 
@@ -31,47 +25,57 @@ describe('Endpoints de Proyectos - /api/projects', () => {
     });
 
     it('POST / - debería crear un nuevo proyecto si el usuario está autenticado', async () => {
-        const projectData = {
-            name: "Nuevo Proyecto de Prueba",
-            description: "Esta es una descripción.",
-            color: "bg-blue-500"
-        };
-        
+        const projectData = { name: "Nuevo Proyecto de Prueba", description: "Descripción", color: "bg-blue-500", members: [] };
         const response = await request(app)
             .post('/api/projects')
             .set('Authorization', `Bearer ${token}`)
-            .field('data', JSON.stringify(projectData)) // Usamos .field para multipart/form-data
+            .field('data', JSON.stringify(projectData))
             .expect(201);
-        
         expect(response.body.name).toBe(projectData.name);
         expect(response.body.isOwner).toBe(true);
     });
 
-    it('GET / - debería devolver solo los proyectos del usuario autenticado', async () => {
-        // Creamos un proyecto para el usuario de prueba
+    it('GET / - debería devolver solo los proyectos del usuario', async () => {
         await new Project({ name: 'Proyecto 1', description: 'desc', color: 'red', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
-        
-        // Creamos un proyecto de otro usuario
         await new Project({ name: 'Proyecto de Otro', description: 'desc', color: 'blue', owner: new mongoose.Types.ObjectId(), members: [] }).save();
-
         const response = await request(app)
             .get('/api/projects')
             .set('Authorization', `Bearer ${token}`)
             .expect(200);
-
         expect(response.body).toHaveLength(1);
         expect(response.body[0].name).toBe('Proyecto 1');
+    });
+    
+    it('GET /:projectId - debería devolver los detalles de un proyecto específico', async () => {
+        const project = await new Project({ name: 'Proyecto Detalle', description: 'desc', color: 'red', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+        const response = await request(app)
+            .get(`/api/projects/${(project as any)._id}`) // CORRECCIÓN AQUÍ
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+        expect(response.body.name).toBe('Proyecto Detalle');
+        expect(response.body.id).toBe((project as any)._id.toString());
+    });
+
+    it('PUT /:projectId - debería permitir al propietario actualizar su proyecto', async () => {
+        const project = await new Project({ name: 'Proyecto Original', description: 'desc', color: 'red', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+        const updatedData = { name: 'Proyecto Actualizado' };
+        const response = await request(app)
+            .put(`/api/projects/${(project as any)._id}`) // CORRECCIÓN AQUÍ
+            .set('Authorization', `Bearer ${token}`)
+            .field('data', JSON.stringify(updatedData))
+            .expect(200);
+        expect(response.body.name).toBe('Proyecto Actualizado');
     });
 
     it('DELETE /:projectId - debería permitir al propietario eliminar su proyecto', async () => {
         const project = await new Project({ name: 'A eliminar', description: 'desc', color: 'red', owner: userId, members: [] }).save();
         
         await request(app)
-            .delete(`/api/projects/${project._id}`)
+            .delete(`/api/projects/${(project as any)._id}`) // CORRECCIÓN AQUÍ
             .set('Authorization', `Bearer ${token}`)
             .expect(204);
 
-        const projectInDb = await Project.findById(project._id);
+        const projectInDb = await Project.findById((project as any)._id); // CORRECCIÓN AQUÍ
         expect(projectInDb).toBeNull();
     });
 
@@ -79,7 +83,7 @@ describe('Endpoints de Proyectos - /api/projects', () => {
         const project = await new Project({ name: 'Proyecto ajeno', description: 'desc', color: 'red', owner: new mongoose.Types.ObjectId(), members: [] }).save();
         
         await request(app)
-            .delete(`/api/projects/${project._id}`)
+            .delete(`/api/projects/${(project as any)._id}`) // CORRECCIÓN AQUÍ
             .set('Authorization', `Bearer ${token}`)
             .expect(403);
     });
