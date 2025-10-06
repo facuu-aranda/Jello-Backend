@@ -59,17 +59,29 @@ export const uploadAvatar = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "No se subió ningún archivo." });
         }
         const userId = (req.user as IJwtPayload).id;
+        
+        const avatarUrl = req.file.path;
 
-        // Lógica condicional: si es un test, usamos una URL falsa. Si no, la real de Cloudinary.
-        const avatarUrl = process.env.NODE_ENV === 'test' 
-            ? `https://fake.cloudinary.url/${req.file.originalname}` 
-            : req.file.path;
+        // 1. Actualizamos el usuario y le pedimos que nos devuelva el documento actualizado.
+        const updatedUser = await User.findByIdAndUpdate(userId, { avatarUrl }, { new: true });
 
-        await User.findByIdAndUpdate(userId, { avatarUrl });
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
 
-        res.status(200).json({ url: avatarUrl });
+        // 2. Devolvemos el perfil de usuario completo y formateado.
+        res.status(200).json({
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            avatarUrl: updatedUser.avatarUrl,
+            bannerUrl: updatedUser.bannerUrl,
+            title: updatedUser.jobTitle,
+            bio: updatedUser.bio,
+            timezone: updatedUser.timezone,
+            skills: updatedUser.skills,
+        });
     } catch (error) {
-        console.error('--- ERROR DETALLADO EN EL TEST DE AVATAR ---', error);
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
@@ -82,15 +94,28 @@ export const uploadBanner = async (req: Request, res: Response) => {
         }
         const userId = (req.user as IJwtPayload).id;
         
-        const bannerUrl = process.env.NODE_ENV === 'test' 
-            ? `https://fake.cloudinary.url/${req.file.originalname}` 
-            : req.file.path;
+        const bannerUrl = req.file.path;
 
-        await User.findByIdAndUpdate(userId, { bannerUrl });
+        // 1. Actualizamos y obtenemos el usuario completo.
+        const updatedUser = await User.findByIdAndUpdate(userId, { bannerUrl }, { new: true });
 
-        res.status(200).json({ url: bannerUrl });
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+
+        // 2. Devolvemos el perfil de usuario completo y formateado.
+        res.status(200).json({
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            avatarUrl: updatedUser.avatarUrl,
+            bannerUrl: updatedUser.bannerUrl,
+            title: updatedUser.jobTitle,
+            bio: updatedUser.bio,
+            timezone: updatedUser.timezone,
+            skills: updatedUser.skills,
+        });
     } catch (error) {
-        console.error('--- ERROR DETALLADO EN EL TEST DE BANNER ---', error);
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
