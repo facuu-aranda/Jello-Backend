@@ -1,18 +1,24 @@
+// Archivo: Jello-Backend/routes/notification.routes.ts
 import { Router } from 'express';
-import * as notificationController from '../controllers/notification.controller';
+import { 
+    getNotifications, 
+    respondToNotification, 
+    markAsRead, 
+    deleteNotification,
+    createCollaborationRequest // <-- 1. Importar la nueva función
+} from '../controllers/notification.controller';
 import authMiddleware from '../middleware/auth.middleware';
 
 const router = Router();
 router.use(authMiddleware);
 
-router.get('/', notificationController.getNotifications);
+router.get('/', getNotifications);
+router.put('/read', markAsRead);
+router.put('/:notificationId/respond', respondToNotification);
+router.delete('/:notificationId', deleteNotification);
 
-router.put('/read', notificationController.markAsRead);
-
-// PUT /api/notifications/:notificationId/respond -> Responder a una notificación
-router.put('/:notificationId/respond', notificationController.respondToNotification); // <-- CAMBIO DE NOMBRE
-
-
-router.delete('/:notificationId', notificationController.deleteNotification);
+// --- 2. NUEVA RUTA AÑADIDA ---
+// Se registra el endpoint POST que faltaba.
+router.post('/collaborate', createCollaborationRequest);
 
 export default router;

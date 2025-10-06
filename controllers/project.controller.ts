@@ -1,3 +1,4 @@
+// Archivo: Jello-Backend/controllers/project.controller.ts
 import { Request, Response } from 'express';
 import { Project, IProject } from '../models/Project.model';
 import { User, IUser } from '../models/User.model';
@@ -7,15 +8,17 @@ import { Notification } from '../models/Notification.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 import mongoose from 'mongoose';
 
-// Helper para asegurar el tipo de req.user
 const getTypedUser = (req: Request): IJwtPayload => {
     return req.user as IJwtPayload;
 }
 
-// Crear un nuevo proyecto
+// --- FUNCIÓN 'createProject' MODIFICADA ---
 export const createProject = async (req: Request, res: Response) => {
   try {
-    const { name, description, color, members, dueDate } = JSON.parse(req.body.data);
+    // --- CAMBIO CLAVE ---
+    // Ya no se usa JSON.parse(req.body.data). Multer ahora se encarga de poner
+    // los campos de texto directamente en req.body.
+    const { name, description, color, members, dueDate } = req.body;
     const ownerId = getTypedUser(req)?.id;
 
     if (!ownerId) {
@@ -29,16 +32,21 @@ export const createProject = async (req: Request, res: Response) => {
       dueDate,
       owner: ownerId,
     };
-
+    
+    // --- CAMBIO CLAVE ---
+    // req.files ahora es un objeto poblado por Multer, que contiene los archivos subidos.
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-    if (files.projectImage) {
+    if (files && files.projectImage) {
         newProjectData.projectImageUrl = files.projectImage[0].path;
     }
-    if (files.bannerImage) {
+    if (files && files.bannerImage) {
         newProjectData.bannerImageUrl = files.bannerImage[0].path;
     }
 
-    const initialMembers = members?.map((m: { user: string, role: string }) => ({
+    // El campo 'members' del formulario puede llegar como un string JSON, lo parseamos de forma segura.
+    const parsedMembers = members && typeof members === 'string' ? JSON.parse(members) : (members || []);
+
+    const initialMembers = parsedMembers.map((m: { user: string, role: string }) => ({
         user: m.user,
         role: m.role || 'member'
     })) || [];
@@ -51,23 +59,19 @@ export const createProject = async (req: Request, res: Response) => {
     
     const newProject = new Project(newProjectData);
     await newProject.save();
-    
     const populatedProject = await newProject.populate('members.user', 'name avatarUrl');
     
-    // Devolvemos el proyecto en el formato ProjectSummary esperado
     const response = {
-        // CORRECCIÓN: Se castea 'populatedProject' a 'any' para acceder a '_id'
         id: (populatedProject as any)._id.toString(),
         name: populatedProject.name,
         description: populatedProject.description,
         color: populatedProject.color,
         progress: 0,
         members: populatedProject.members.map((member: any) => ({
-            id: member.user._id,
+           id: member.user._id,
             name: member.user.name,
             avatarUrl: member.user.avatarUrl
         })),
-        // CORRECCIÓN: Se castea 'populatedProject' a 'any' para acceder a 'owner'
         isOwner: (populatedProject as any).owner.toString() === ownerId,
         dueDate: populatedProject.dueDate ? populatedProject.dueDate.toISOString() : null,
         totalTasks: 0,
@@ -76,21 +80,20 @@ export const createProject = async (req: Request, res: Response) => {
 
     res.status(201).json(response);
   } catch (error) {
+    console.error("Error al crear proyecto:", error); // Añadido para mejor depuración
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
 };
 
 
-
-// MODIFICADO: Obtener todos los proyectos del usuario
+// --- El resto de las funciones (getAllUserProjects, getProjectById, etc.) permanecen sin cambios ---
+// ... (pega aquí el resto de las funciones del controlador de proyecto)
 export const getAllUserProjects = async (req: Request, res: Response) => {
     try {
         const userId = getTypedUser(req)?.id;
         const filter = req.query.filter as 'owned' | 'working' | undefined;
 
         const query: mongoose.FilterQuery<IProject> = { 'members.user': userId };
-
-        // Lógica de filtrado
         if (filter === 'owned') {
             query.owner = userId;
         } else if (filter === 'working') {
@@ -101,7 +104,6 @@ export const getAllUserProjects = async (req: Request, res: Response) => {
             .populate('owner', 'name email')
             .populate('members.user', 'name avatarUrl')
             .lean();
-
         const projectsWithProgress = await Promise.all(projectsData.map(async (project) => {
             const tasks = await Task.find({ project: project._id });
             const totalTasks = tasks.length;
@@ -134,7 +136,6 @@ export const getAllUserProjects = async (req: Request, res: Response) => {
     }
 };
 
-// MODIFICADO: Obtener un solo proyecto por su ID
 export const getProjectById = async (req: Request, res: Response) => {
   try {
     const { projectId } = req.params;
@@ -149,7 +150,6 @@ export const getProjectById = async (req: Request, res: Response) => {
               select: 'name email avatarUrl'
           }
       });
-      
     if (!project) {
       return res.status(404).json({ message: 'Proyecto no encontrado.' });
     }
@@ -159,19 +159,16 @@ export const getProjectById = async (req: Request, res: Response) => {
       return res.status(403).json({ message: 'Acción no autorizada.' });
     }
     
-    // CORRECCIÓN: Se castea 'project' a 'any' para acceder a '_id' de forma segura.
     const tasks = await Task.find({ project: (project as any)._id })
       .populate('assignees', 'name avatarUrl')
       .populate('labels')
       .lean();
-
     const tasksByStatus = {
         todo: [] as any[],
         'in-progress': [] as any[],
         review: [] as any[],
         done: [] as any[],
     };
-
     for (const task of tasks) {
         const formattedTask = {
             id: task._id.toString(),
@@ -194,10 +191,8 @@ export const getProjectById = async (req: Request, res: Response) => {
             },
             commentCount: await Comment.countDocuments({ task: task._id }),
             attachmentCount: task.attachments.length,
-            // CORRECCIÓN: Se castea 'project' a 'any' para acceder a '_id' de forma segura.
             projectId: (project as any)._id.toString()
         };
-        
         if (tasksByStatus[task.status as keyof typeof tasksByStatus]) {
             tasksByStatus[task.status as keyof typeof tasksByStatus].push(formattedTask);
         }
@@ -220,7 +215,6 @@ export const getProjectById = async (req: Request, res: Response) => {
         completedTasks: tasks.filter(t => t.status === 'done').length,
         tasksByStatus: tasksByStatus
     };
-    
     projectDetails.progress = projectDetails.totalTasks > 0 ? Math.round((projectDetails.completedTasks / projectDetails.totalTasks) * 100) : 0;
 
     res.json(projectDetails);
@@ -228,8 +222,6 @@ export const getProjectById = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
 };
-
-// Actualizar un proyecto
 export const updateProject = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
@@ -257,7 +249,6 @@ export const updateProject = async (req: Request, res: Response) => {
 
         const updatedProject = await Project.findByIdAndUpdate(projectId, updateData, { new: true })
             .populate('members.user', 'name avatarUrl');
-        
         if (!updatedProject) {
             return res.status(404).json({ message: 'Proyecto no encontrado.' });
         }
@@ -265,10 +256,7 @@ export const updateProject = async (req: Request, res: Response) => {
         const tasks = await Task.find({ project: (updatedProject as any)._id });
         const totalTasks = tasks.length;
         const completedTasks = tasks.filter(t => t.status === 'done').length;
-
-        // Devolvemos el proyecto en el formato ProjectSummary esperado
         const response = {
-            // CORRECCIÓN: Se castea 'updatedProject' a 'any' para acceder a '_id'
             id: (updatedProject as any)._id.toString(),
             name: updatedProject.name,
             description: updatedProject.description,
@@ -279,24 +267,21 @@ export const updateProject = async (req: Request, res: Response) => {
                 name: member.user.name,
                 avatarUrl: member.user.avatarUrl
             })),
-            // CORRECCIÓN: Se castea 'updatedProject' a 'any' para acceder a 'owner'
             isOwner: (updatedProject as any).owner.toString() === userId,
             dueDate: updatedProject.dueDate ? updatedProject.dueDate.toISOString() : null,
             totalTasks: totalTasks,
             completedTasks: completedTasks,
         };
-
         res.json(response);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
-// Enviar una invitación para unirse a un proyecto
 export const addMember = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
-        const { userIdToInvite } = req.body; // Cambiado de 'email' a 'userIdToInvite'
+        const { userIdToInvite } = req.body;
         const sender = getTypedUser(req);
         if (!sender) return res.status(401).json({ message: "Usuario no autenticado." });
 
@@ -308,9 +293,8 @@ export const addMember = async (req: Request, res: Response) => {
           return res.status(403).json({ message: 'Solo los administradores pueden enviar invitaciones.' });
         }
         
-        const memberToAdd = await User.findById(userIdToInvite); // Buscamos por ID
+        const memberToAdd = await User.findById(userIdToInvite);
         if (!memberToAdd) return res.status(404).json({ message: 'Usuario a invitar no encontrado.' });
-
         if (project.members.some(m => (m.user as any)._id.equals(memberToAdd._id))) {
             return res.status(400).json({ message: 'El usuario ya es miembro de este proyecto.' });
         }
@@ -346,9 +330,7 @@ export const deleteProject = async (req: Request, res: Response) => {
             return res.status(403).json({ message: 'Acción no autorizada. Solo el propietario puede eliminar.' });
         }
 
-        // Eliminación en cascada de tareas
         await Task.deleteMany({ project: projectId });
-        
         await Project.findByIdAndDelete(projectId);
 
         res.status(204).send();
