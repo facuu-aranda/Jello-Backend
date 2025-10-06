@@ -1,8 +1,7 @@
-// Archivo: Jello-Backend/controllers/project.controller.ts
 import { Request, Response } from 'express';
 import { Project, IProject } from '../models/Project.model';
-import { User, IUser } from '../models/User.model';
-import { Task, ITask } from '../models/Task.model';
+import { User } from '../models/User.model';
+import { Task } from '../models/Task.model';
 import { Comment } from '../models/Comment.model';
 import { Notification } from '../models/Notification.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
@@ -12,12 +11,9 @@ const getTypedUser = (req: Request): IJwtPayload => {
     return req.user as IJwtPayload;
 }
 
-// --- FUNCIÓN 'createProject' MODIFICADA ---
 export const createProject = async (req: Request, res: Response) => {
   try {
-    // --- CAMBIO CLAVE ---
-    // Ya no se usa JSON.parse(req.body.data). Multer ahora se encarga de poner
-    // los campos de texto directamente en req.body.
+    // CORRECCIÓN: Se leen los campos directamente del req.body, no de un campo 'data'.
     const { name, description, color, members, dueDate } = req.body;
     const ownerId = getTypedUser(req)?.id;
 
@@ -25,16 +21,9 @@ export const createProject = async (req: Request, res: Response) => {
       return res.status(401).json({ message: 'Usuario no autenticado.' });
     }
 
-    const newProjectData: any = {
-      name,
-      description,
-      color,
-      dueDate,
-      owner: ownerId,
-    };
+    const newProjectData: any = { name, description, color, dueDate, owner: ownerId };
     
-    // --- CAMBIO CLAVE ---
-    // req.files ahora es un objeto poblado por Multer, que contiene los archivos subidos.
+    // Se procesan los archivos subidos por Multer
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
     if (files && files.projectImage) {
         newProjectData.projectImageUrl = files.projectImage[0].path;
@@ -43,13 +32,8 @@ export const createProject = async (req: Request, res: Response) => {
         newProjectData.bannerImageUrl = files.bannerImage[0].path;
     }
 
-    // El campo 'members' del formulario puede llegar como un string JSON, lo parseamos de forma segura.
     const parsedMembers = members && typeof members === 'string' ? JSON.parse(members) : (members || []);
-
-    const initialMembers = parsedMembers.map((m: { user: string, role: string }) => ({
-        user: m.user,
-        role: m.role || 'member'
-    })) || [];
+    const initialMembers = parsedMembers.map((m: { user: string, role: string }) => ({ user: m.user, role: m.role || 'member' })) || [];
 
     const ownerInMembers = initialMembers.some((m: { user: string }) => m.user === ownerId);
     if (!ownerInMembers) {
@@ -76,18 +60,81 @@ export const createProject = async (req: Request, res: Response) => {
         dueDate: populatedProject.dueDate ? populatedProject.dueDate.toISOString() : null,
         totalTasks: 0,
         completedTasks: 0,
-    }
+    };
 
     res.status(201).json(response);
   } catch (error) {
-    console.error("Error al crear proyecto:", error); // Añadido para mejor depuración
+    console.error("Error al crear proyecto:", error);
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
 };
 
+// --- FUNCIÓN 'updateProject' CORREGIDA ---
+export const updateProject = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const userId = getTypedUser(req)?.id;
+    
+        const project = await Project.findById(projectId);
+        if (!project) {
+          return res.status(404).json({ message: 'Proyecto no encontrado.' });
+        }
+    
+        const member = project.members.find(m => (m.user as any)._id.equals(userId));
+        if ((project.owner as any)._id.toString() !== userId && member?.role !== 'admin') {
+          return res.status(403).json({ message: 'Acción no autorizada. Requiere rol de administrador.' });
+        }
+    
+        // CORRECCIÓN: Se leen los datos directamente de req.body, igual que en createProject.
+        const updateData: any = req.body;
 
-// --- El resto de las funciones (getAllUserProjects, getProjectById, etc.) permanecen sin cambios ---
-// ... (pega aquí el resto de las funciones del controlador de proyecto)
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        if (files && files.projectImage && files.projectImage[0]) {
+            updateData.projectImageUrl = files.projectImage[0].path;
+        }
+        if (files && files.bannerImage && files.bannerImage[0]) {
+            updateData.bannerImageUrl = files.bannerImage[0].path;
+        }
+
+        if (updateData.members && typeof updateData.members === 'string') {
+            updateData.members = JSON.parse(updateData.members);
+        }
+
+        const updatedProject = await Project.findByIdAndUpdate(projectId, updateData, { new: true })
+            .populate('members.user', 'name avatarUrl');
+            
+        if (!updatedProject) { return res.status(404).json({ message: 'Proyecto no encontrado.' }); }
+        
+        const tasks = await Task.find({ project: (updatedProject as any)._id });
+        const totalTasks = tasks.length;
+        const completedTasks = tasks.filter(t => t.status === 'done').length;
+        
+        const response = {
+            id: (updatedProject as any)._id.toString(),
+            name: updatedProject.name,
+            description: updatedProject.description,
+            color: updatedProject.color,
+            progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
+            members: updatedProject.members.map((member: any) => ({
+                id: member.user._id,
+                name: member.user.name,
+                avatarUrl: member.user.avatarUrl
+            })),
+            isOwner: (updatedProject as any).owner.toString() === userId,
+            dueDate: updatedProject.dueDate ? updatedProject.dueDate.toISOString() : null,
+            totalTasks: totalTasks,
+            completedTasks: completedTasks,
+            bannerImageUrl: updatedProject.bannerImageUrl,
+            projectImageUrl: updatedProject.projectImageUrl
+        };
+        res.json(response);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+
+
 export const getAllUserProjects = async (req: Request, res: Response) => {
     try {
         const userId = getTypedUser(req)?.id;
@@ -221,74 +268,6 @@ export const getProjectById = async (req: Request, res: Response) => {
   } catch (error) {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
-};
-
-export const updateProject = async (req: Request, res: Response) => {
-    try {
-        const { projectId } = req.params;
-        const userId = getTypedUser(req)?.id;
-    
-        const project = await Project.findById(projectId);
-        if (!project) {
-          return res.status(404).json({ message: 'Proyecto no encontrado.' });
-        }
-    
-        const member = project.members.find(m => (m.user as any)._id.equals(userId));
-        if ((project.owner as any)._id.toString() !== userId && member?.role !== 'admin') {
-          return res.status(403).json({ message: 'Acción no autorizada. Requiere rol de administrador.' });
-        }
-    
-        // --- CAMBIO CLAVE ---
-        // Leemos los datos directamente de req.body, ya no esperamos un campo 'data' con JSON.
-        const updateData: any = req.body;
-
-        // Manejamos los archivos subidos de la misma forma que en createProject
-        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-        if (files && files.projectImage && files.projectImage[0]) {
-            updateData.projectImageUrl = files.projectImage[0].path;
-        }
-        if (files && files.bannerImage && files.bannerImage[0]) {
-            updateData.bannerImageUrl = files.bannerImage[0].path;
-        }
-
-        // Si los miembros vienen como string, los parseamos
-        if (updateData.members && typeof updateData.members === 'string') {
-            updateData.members = JSON.parse(updateData.members);
-        }
-
-        const updatedProject = await Project.findByIdAndUpdate(projectId, updateData, { new: true })
-            .populate('members.user', 'name avatarUrl');
-            
-        if (!updatedProject) {
-            return res.status(404).json({ message: 'Proyecto no encontrado.' });
-        }
-        
-        const tasks = await Task.find({ project: (updatedProject as any)._id });
-        const totalTasks = tasks.length;
-        const completedTasks = tasks.filter(t => t.status === 'done').length;
-        
-        const response = {
-            id: (updatedProject as any)._id.toString(),
-            name: updatedProject.name,
-            description: updatedProject.description,
-            color: updatedProject.color,
-            progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
-            members: updatedProject.members.map((member: any) => ({
-                id: member.user._id,
-                name: member.user.name,
-                avatarUrl: member.user.avatarUrl
-            })),
-            isOwner: (updatedProject as any).owner.toString() === userId,
-            dueDate: updatedProject.dueDate ? updatedProject.dueDate.toISOString() : null,
-            totalTasks: totalTasks,
-            completedTasks: completedTasks,
-            bannerImageUrl: updatedProject.bannerImageUrl,
-            projectImageUrl: updatedProject.projectImageUrl
-        };
-        res.json(response);
-    } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-    }
 };
 
 
