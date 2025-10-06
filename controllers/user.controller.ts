@@ -32,10 +32,30 @@ export const getMyProfile = async (req: Request, res: Response) => {
 export const updateProfile = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        const updatedUser = await User.findByIdAndUpdate(userId, req.body, { new: true });
+        
+        // 1. Extraemos los datos del cuerpo de la petición.
+        const { name, bio, title, timezone, skills } = req.body;
+
+        // 2. Creamos un objeto para la actualización, mapeando los nombres correctos.
+        const updateData: any = {
+            name,
+            bio,
+            jobTitle: title, // <-- Aquí está la corrección clave
+            timezone,
+            skills,
+        };
+
+        // 3. Eliminamos cualquier campo que no se haya enviado para no sobrescribir con 'undefined'.
+        Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+
+        // 4. Actualizamos la base de datos con los datos ya mapeados.
+        const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
+
         if (!updatedUser) {
-            return res.status(404).json({ error: "Usuario no encontrado." });
+            return res.status(404).json({ error: "Usuario no encontrado" });
         }
+        
+        // 5. Devolvemos el perfil completo y bien formateado, igual que en getMyProfile.
         res.json({
             id: updatedUser._id,
             name: updatedUser.name,
