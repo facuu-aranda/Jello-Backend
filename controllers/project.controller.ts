@@ -222,6 +222,7 @@ export const getProjectById = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
   }
 };
+
 export const updateProject = async (req: Request, res: Response) => {
     try {
         const { projectId } = req.params;
@@ -237,18 +238,27 @@ export const updateProject = async (req: Request, res: Response) => {
           return res.status(403).json({ message: 'Acción no autorizada. Requiere rol de administrador.' });
         }
     
-        const updateData: any = req.body.data ? JSON.parse(req.body.data) : {};
+        // --- CAMBIO CLAVE ---
+        // Leemos los datos directamente de req.body, ya no esperamos un campo 'data' con JSON.
+        const updateData: any = req.body;
 
+        // Manejamos los archivos subidos de la misma forma que en createProject
         const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-        if (files.projectImage) {
+        if (files && files.projectImage && files.projectImage[0]) {
             updateData.projectImageUrl = files.projectImage[0].path;
         }
-        if (files.bannerImage) {
+        if (files && files.bannerImage && files.bannerImage[0]) {
             updateData.bannerImageUrl = files.bannerImage[0].path;
+        }
+
+        // Si los miembros vienen como string, los parseamos
+        if (updateData.members && typeof updateData.members === 'string') {
+            updateData.members = JSON.parse(updateData.members);
         }
 
         const updatedProject = await Project.findByIdAndUpdate(projectId, updateData, { new: true })
             .populate('members.user', 'name avatarUrl');
+            
         if (!updatedProject) {
             return res.status(404).json({ message: 'Proyecto no encontrado.' });
         }
@@ -256,6 +266,7 @@ export const updateProject = async (req: Request, res: Response) => {
         const tasks = await Task.find({ project: (updatedProject as any)._id });
         const totalTasks = tasks.length;
         const completedTasks = tasks.filter(t => t.status === 'done').length;
+        
         const response = {
             id: (updatedProject as any)._id.toString(),
             name: updatedProject.name,
@@ -271,12 +282,15 @@ export const updateProject = async (req: Request, res: Response) => {
             dueDate: updatedProject.dueDate ? updatedProject.dueDate.toISOString() : null,
             totalTasks: totalTasks,
             completedTasks: completedTasks,
+            bannerImageUrl: updatedProject.bannerImageUrl,
+            projectImageUrl: updatedProject.projectImageUrl
         };
         res.json(response);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
+
 
 export const addMember = async (req: Request, res: Response) => {
     try {
