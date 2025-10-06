@@ -168,6 +168,8 @@ export const getAllUserProjects = async (req: Request, res: Response) => {
               name: project.name,
               description: project.description,
               color: project.color,
+    projectImageUrl: project.projectImageUrl,  // <-- AÑADIR ESTA LÍNEA
+    bannerImageUrl: project.bannerImageUrl,   // <-- AÑADIR ESTA LÍNEA
               progress: Math.round(progress),
               members: formattedMembers,
               isOwner: (project.owner as any)._id.toString() === userId,
@@ -251,6 +253,8 @@ export const getProjectById = async (req: Request, res: Response) => {
         description: project.description,
         color: project.color,
         progress: 0,
+    projectImageUrl: project.projectImageUrl,  // <-- AÑADIR ESTA LÍNEA
+    bannerImageUrl: project.bannerImageUrl,   // <-- AÑADIR ESTA LÍNEA
         members: project.members.map((member: any) => ({
             id: member.user._id,
             name: member.user.name,
