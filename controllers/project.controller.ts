@@ -6,6 +6,7 @@ import { Comment } from '../models/Comment.model';
 import { Notification } from '../models/Notification.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 import mongoose from 'mongoose';
+import { Activity } from '../models/Activity.model'; 
 
 const getTypedUser = (req: Request): IJwtPayload => {
     return req.user as IJwtPayload;
@@ -133,7 +134,40 @@ export const updateProject = async (req: Request, res: Response) => {
     }
 };
 
+export const getProjectActivity = async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 20; // Limita a las últimas 20 actividades
 
+    const activities = await Activity.find({ project: projectId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('user', 'name avatarUrl');
+      // No populamos 'task' ni 'project' para que la respuesta sea más ligera
+
+    // Mapear al formato esperado por el frontend
+    const formattedActivities = activities.map(act => {
+      const user = act.user as any;
+      return {
+        id: act._id,
+        type: act.type,
+        user: {
+            id: user._id,
+            name: user.name,
+            avatarUrl: user.avatarUrl,
+        },
+        action: act.text, // Devolvemos el texto completo para el frontend
+        target: '', // El frontend puede extraer esto si es necesario
+        time: act.createdAt,
+        projectId: act.project,
+      }
+    });
+
+    res.json(formattedActivities);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching project activity', error: (error as Error).message });
+  }
+};
 
 export const getAllUserProjects = async (req: Request, res: Response) => {
     try {

@@ -34,4 +34,6 @@ router.post('/:projectId/tasks', taskController.createTask);
 router.put('/:projectId/tasks/:taskId', taskController.updateTask);
 router.delete('/:projectId/tasks/:taskId', taskController.deleteTask);
 
+router.get('/projects/:projectId/activity', authMiddleware, projectController.getProjectActivity);
+
 export default router;
