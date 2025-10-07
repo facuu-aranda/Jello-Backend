@@ -28,6 +28,7 @@ const formatTaskDetails = async (task: ITask) => {
         assignees: populatedTaskAny.assignees.map((a: any) => ({ id: a._id, name: a.name, avatarUrl: a.avatarUrl })),
         dueDate: populatedTaskAny.dueDate,
         subtasks: populatedTaskAny.subtasks.map((s: any) => ({ id: s._id, text: s.text, completed: s.completed })),
+        attachments: populatedTaskAny.attachments,
         comments: comments.map((c: any) => ({
             id: c._id,
             author: { id: (c.author as any)._id, name: (c.author as any).name, avatarUrl: (c.author as any).avatarUrl },
@@ -41,7 +42,8 @@ const formatTaskDetails = async (task: ITask) => {
 
 export const createTask = async (req: Request, res: Response) => {
     try {
-        const { title, description, priority, status, dueDate, labels, assignees, subtasks, projectId } = req.body;
+        const { projectId } = req.params; // <-- 1. Read from URL parameters
+        const { title, description, priority, status, dueDate, labels, assignees, subtasks } = req.body; // <-- 2. Remove projectId from here
         const userId = (req.user as IJwtPayload).id;
         const userName = (req.user as any).name;
 
