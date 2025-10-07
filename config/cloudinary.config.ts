@@ -22,7 +22,7 @@ if (process.env.NODE_ENV === 'test') {
     cloudinary,
     params: {
       folder: 'jello-app',
-      allowed_formats: ['jpg', 'png', 'pdf', 'gif']
+      allowed_formats: ['jpg', 'png', 'pdf', 'gif', 'webp']
     } as any 
   });
 }

@@ -50,8 +50,13 @@ export const createTask = async (req: Request, res: Response) => {
         const project = await Project.findById(projectId);
         if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
 
+        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : labels;
+        const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : assignees;
+
         const newTask = new Task({
-            title, description, priority, status, dueDate, labels, assignees,
+            title, description, priority, status, dueDate,
+            labels: parsedLabels,      // <-- Usar la variable parseada
+            assignees: parsedAssignees,  // <-- Usar la variable parseada
             subtasks: subtasks ? subtasks.map((text: string) => ({ text })) : [],
             project: projectId, createdBy: userId
         });
