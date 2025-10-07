@@ -484,36 +484,33 @@ export const login = async (req: Request, res: Response) => {
 
 ############################## INICIO DEL ARCHIVO: controllers\comment.controller.ts ##############################
 
-// Archivo: Jello-Backend/controllers/comment.controller.ts
-
 import { Request, Response } from 'express';
 import { Comment } from '../models/Comment.model';
 import { Task } from '../models/Task.model';
-import { User } from '../models/User.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 import { createActivityLog } from '../services/activity.service';
 
-// --- FUNCIÓN MODIFICADA ---
 export const addComment = async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    // El texto del comentario ahora viene de req.body.content
     const { content } = req.body; 
     const author = req.user as IJwtPayload;
+
+    if (!content || content.trim() === "") {
+        return res.status(400).json({ error: 'El contenido del comentario no puede estar vacío.' });
+    }
 
     const task = await Task.findById(taskId).populate('project');
     if (!task) {
       return res.status(404).json({ error: 'Tarea no encontrada.' });
     }
 
-    // Preparamos los datos del nuevo comentario
     const newCommentData: any = {
       content,
       author: author.id,
       task: taskId
     };
 
-    // Si se subió un archivo, añadimos su URL
     if (req.file) {
       newCommentData.attachmentUrl = req.file.path;
     }
@@ -522,15 +519,16 @@ export const addComment = async (req: Request, res: Response) => {
     await newComment.save();
     
     const project = task.project as any;
+    // --- CORRECCIÓN AQUÍ ---
     await createActivityLog({
         type: 'comment_added',
         user: author.id,
-        project: project._id.toString(),
-        task: taskId,
-        text: `${author.name} comentó en la tarea "${task.title}".`
+        project: project._id.toString(), // Convertimos el ObjectId a string
+        task: task._id.toString(),      // Convertimos el ObjectId a string
+        text: `comentó en la tarea "${task.title}"`
     });
 
-    const populatedComment = await newComment.populate<{ author: { name: string, avatarUrl: string | null } }>('author', 'name avatarUrl');
+    const populatedComment = await newComment.populate('author', 'name avatarUrl');
 
     const responseComment = {
       id: populatedComment._id,
@@ -540,12 +538,13 @@ export const addComment = async (req: Request, res: Response) => {
         avatarUrl: (populatedComment.author as any).avatarUrl
       },
       content: populatedComment.content,
-      attachmentUrl: populatedComment.attachmentUrl, // Devolvemos la URL del adjunto
+      attachmentUrl: populatedComment.attachmentUrl,
       timestamp: (populatedComment as any).createdAt
     };
 
     res.status(201).json(responseComment);
   } catch (error) {
+    console.error("Error adding comment:", error);
     res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
   }
 };
@@ -565,7 +564,7 @@ export const deleteComment = async (req: Request, res: Response) => {
 
         const project = (comment.task as any).project;
         const isAuthor = (comment.author as any).equals(userId);
-        const isProjectOwner = project.owner.equals(userId);
+        const isProjectOwner = (project.owner as any).equals(userId);
 
         if (!isAuthor && !isProjectOwner) {
             return res.status(403).json({ error: 'Acción no autorizada.' });
@@ -859,6 +858,7 @@ import { Comment } from '../models/Comment.model';
 import { Notification } from '../models/Notification.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 import mongoose from 'mongoose';
+import { Activity } from '../models/Activity.model'; 
 
 const getTypedUser = (req: Request): IJwtPayload => {
     return req.user as IJwtPayload;
@@ -986,7 +986,40 @@ export const updateProject = async (req: Request, res: Response) => {
     }
 };
 
+export const getProjectActivity = async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 20; // Limita a las últimas 20 actividades
 
+    const activities = await Activity.find({ project: projectId })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('user', 'name avatarUrl');
+      // No populamos 'task' ni 'project' para que la respuesta sea más ligera
+
+    // Mapear al formato esperado por el frontend
+    const formattedActivities = activities.map(act => {
+      const user = act.user as any;
+      return {
+        id: act._id,
+        type: act.type,
+        user: {
+            id: user._id,
+            name: user.name,
+            avatarUrl: user.avatarUrl,
+        },
+        action: act.text, // Devolvemos el texto completo para el frontend
+        target: '', // El frontend puede extraer esto si es necesario
+        time: act.createdAt,
+        projectId: act.project,
+      }
+    });
+
+    res.json(formattedActivities);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching project activity', error: (error as Error).message });
+  }
+};
 
 export const getAllUserProjects = async (req: Request, res: Response) => {
     try {
@@ -1021,6 +1054,8 @@ export const getAllUserProjects = async (req: Request, res: Response) => {
               name: project.name,
               description: project.description,
               color: project.color,
+    projectImageUrl: project.projectImageUrl,  // <-- AÑADIR ESTA LÍNEA
+    bannerImageUrl: project.bannerImageUrl,   // <-- AÑADIR ESTA LÍNEA
               progress: Math.round(progress),
               members: formattedMembers,
               isOwner: (project.owner as any)._id.toString() === userId,
@@ -1104,6 +1139,8 @@ export const getProjectById = async (req: Request, res: Response) => {
         description: project.description,
         color: project.color,
         progress: 0,
+    projectImageUrl: project.projectImageUrl,  // <-- AÑADIR ESTA LÍNEA
+    bannerImageUrl: project.bannerImageUrl,   // <-- AÑADIR ESTA LÍNEA
         members: project.members.map((member: any) => ({
             id: member.user._id,
             name: member.user.name,
@@ -1243,219 +1280,158 @@ import { Request, Response } from 'express';
 import { Task, ITask } from '../models/Task.model';
 import { Project } from '../models/Project.model';
 import { Notification } from '../models/Notification.model';
-import { Activity } from '../models/Activity.model';
 import { Comment } from '../models/Comment.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
-import mongoose from 'mongoose';
+import { createActivityLog } from '../services/activity.service';
 
-// =================================================================================
-// Helper para formatear la respuesta de una tarea al formato TaskDetails
-// =================================================================================
 const formatTaskDetails = async (task: ITask) => {
-    // Populamos los campos que puedan no estarlo
     const populatedTask = await task.populate([
         { path: 'assignees', select: 'name avatarUrl' },
         { path: 'labels' }
     ]);
 
-    // Buscamos los comentarios asociados a la tarea
     const comments = await Comment.find({ task: (populatedTask as any)._id })
         .populate('author', 'name avatarUrl')
         .sort({ createdAt: 'desc' });
 
-    // Casteamos populatedTask a 'any' para acceder a sus propiedades de forma segura.
     const populatedTaskAny = populatedTask as any;
 
-    // Mapeamos todos los campos al formato esperado por el frontend
     return {
         id: populatedTaskAny._id.toString(),
         title: populatedTaskAny.title,
         description: populatedTaskAny.description,
         status: populatedTaskAny.status,
         priority: populatedTaskAny.priority,
-        dueDate: populatedTaskAny.dueDate ? populatedTaskAny.dueDate.toISOString() : null,
-        projectId: populatedTaskAny.project._id ? populatedTaskAny.project._id.toString() : populatedTaskAny.project.toString(),
-        labels: populatedTaskAny.labels.map((label: any) => ({
-            id: label._id.toString(),
-            name: label.name,
-            color: label.color,
+        labels: populatedTaskAny.labels.map((l: any) => ({ id: l._id, name: l.name, color: l.color })),
+        assignees: populatedTaskAny.assignees.map((a: any) => ({ id: a._id, name: a.name, avatarUrl: a.avatarUrl })),
+        dueDate: populatedTaskAny.dueDate,
+        subtasks: populatedTaskAny.subtasks.map((s: any) => ({ id: s._id, text: s.text, completed: s.completed })),
+        comments: comments.map((c: any) => ({
+            id: c._id,
+            author: { id: (c.author as any)._id, name: (c.author as any).name, avatarUrl: (c.author as any).avatarUrl },
+            content: c.content,
+            timestamp: c.createdAt,
+            attachmentUrl: c.attachmentUrl
         })),
-        assignees: populatedTaskAny.assignees.map((assignee: any) => ({
-            id: assignee._id.toString(),
-            name: assignee.name,
-            avatarUrl: assignee.avatarUrl,
-        })),
-        subtasks: populatedTaskAny.subtasks.map((subtask: any) => ({
-            id: subtask._id.toString(),
-            text: subtask.text,
-            completed: subtask.completed,
-        })),
-        attachments: populatedTaskAny.attachments.map((attachment: any) => ({
-            id: attachment._id.toString(),
-            name: attachment.name,
-            url: attachment.url,
-            size: attachment.size,
-            type: attachment.type,
-        })),
-        comments: comments.map((comment: any) => ({
-            id: comment._id.toString(),
-            author: {
-                id: comment.author._id.toString(),
-                name: comment.author.name,
-                avatarUrl: comment.author.avatarUrl,
-            },
-            content: comment.content,
-            timestamp: comment.createdAt.toISOString(),
-        })),
+        projectId: (populatedTaskAny.project as any)._id.toString(),
     };
 };
 
-// =================================================================================
-// Funciones del controlador
-// =================================================================================
+export const createTask = async (req: Request, res: Response) => {
+    try {
+        const { title, description, priority, status, dueDate, labels, assignees, subtasks, projectId } = req.body;
+        const userId = (req.user as IJwtPayload).id;
+        const userName = (req.user as any).name;
 
-// Obtener una tarea por su ID
+        const project = await Project.findById(projectId);
+        if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
+
+        const newTask = new Task({
+            title, description, priority, status, dueDate, labels, assignees,
+            subtasks: subtasks ? subtasks.map((text: string) => ({ text })) : [],
+            project: projectId, createdBy: userId
+        });
+        await newTask.save();
+        
+        if (assignees && assignees.length > 0) {
+            for (const assigneeId of assignees) {
+                if (assigneeId.toString() !== userId.toString()) {
+                    await new Notification({
+                        recipient: assigneeId, sender: userId, type: 'task_assigned',
+                        project: projectId, task: newTask._id,
+                        text: `${userName} te asignó la tarea "${title}" en el proyecto "${project.name}".`
+                    }).save();
+                }
+            }
+        }
+
+        // --- CORRECCIÓN AQUÍ ---
+        await createActivityLog({
+            type: 'task_created', 
+            user: userId, 
+            project: projectId, 
+            task: newTask._id.toString(), // Convertimos el ObjectId a string
+            text: `creó la tarea "${title}"`
+        });
+
+        const formattedTask = await formatTaskDetails(newTask);
+        res.status(201).json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+export const updateTask = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        const { assignees, ...updateData } = req.body;
+        const userId = (req.user as IJwtPayload).id;
+        const userName = (req.user as any).name;
+
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
+
+        // --- CORRECCIÓN AQUÍ ---
+        const originalAssignees = task.assignees.map(id => (id as any).toString());
+
+        Object.assign(task, updateData);
+        if (assignees !== undefined) task.assignees = assignees;
+        await task.save();
+
+        if (assignees) {
+            const newAssignees = assignees.filter((id: string) => !originalAssignees.includes(id));
+            if (newAssignees.length > 0) {
+                const project = await Project.findById(task.project);
+                for (const assigneeId of newAssignees) {
+                     if (assigneeId.toString() !== userId.toString()) {
+                        await new Notification({
+                           recipient: assigneeId, sender: userId, type: 'task_assigned',
+                           project: task.project, task: task._id,
+                           text: `${userName} te asignó la tarea "${task.title}" en el proyecto "${(project as any)?.name}".`
+                        }).save();
+                    }
+                }
+            }
+        }
+        
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
 export const getTaskById = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
-        const userId = (req.user as IJwtPayload).id;
-
-        const task = await Task.findById(taskId).populate('project');
-
-        if (!task) {
-            return res.status(404).json({ error: "Tarea no encontrada." });
-        }
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
         
-        const project = task.project as any;
-        if (!project.members.some((m: any) => m.user.equals(userId))) {
-            return res.status(403).json({ error: "Acción no autorizada." });
-        }
-
         const formattedTask = await formatTaskDetails(task);
         res.json(formattedTask);
-
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
-// Crear una nueva tarea
-export const createTask = async (req: Request, res: Response) => {
-  try {
-    const { title, description, priority, status, dueDate, assignees, labels, project } = req.body;
-    const user = req.user as IJwtPayload;
-
-    const newTask = new Task({ title, description, priority, status, dueDate, assignees, labels, project });
-    await newTask.save();
-    
-    await new Activity({
-        type: 'task_created',
-        user: user.id,
-        project: project,
-        task: newTask._id,
-        text: `${user.name} creó la tarea "${title}".`
-    }).save();
-
-    const formattedTask = await formatTaskDetails(newTask);
-    res.status(201).json(formattedTask);
-
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-// Obtener todas las tareas de un proyecto
-export const getTasksForProject = async (req: Request, res: Response) => {
-  try {
-    const { projectId } = req.params;
-    const user = req.user as IJwtPayload;
-
-    const project = await Project.findById(projectId);
-    if (!project || !project.members.some(m => (m.user as any).equals(user.id))) {
-        return res.status(403).json({ message: "Acción no autorizada." });
-    }
-
-    const tasks = await Task.find({ project: projectId })
-      .populate('assignees', 'name avatar')
-      .populate('labels');
-    res.json(tasks);
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-// Actualizar una tarea
-export const updateTask = async (req: Request, res: Response) => {
-  try {
-    const { taskId } = req.params;
-    const updateData = req.body;
-    const user = req.user as IJwtPayload;
-
-    const task = await Task.findById(taskId).populate('project');
-    if (!task) {
-      return res.status(404).json({ message: 'Tarea no encontrada.' });
-    }
-
-    const updatedTask = await Task.findByIdAndUpdate(taskId, updateData, { new: true });
-    if (!updatedTask) {
-      return res.status(404).json({ message: 'No se pudo actualizar la tarea.' });
-    }
-    
-    // Lógica de notificación
-    if (updateData.status && updateData.status !== task.status) {
-      const project = (task.project as any);
-      const recipients = new Set<string>();
-      if (project.owner) {
-        recipients.add(project.owner.toString());
-      }
-      task.assignees.forEach((assigneeId: any) => recipients.add(assigneeId.toString()));
-
-      recipients.delete(user.id);
-
-      for (const recipientId of recipients) {
-        await new Notification({
-            recipient: recipientId,
-            sender: user.id,
-            type: 'comment',
-            status: 'unread',
-            project: project._id,
-            task: task._id,
-            text: `${user.name} actualizó el estado de la tarea "${task.title}" a "${updateData.status}".`,
-            link: `/project/${project._id}`
-        }).save();
-      }
-    }
-    
-    const formattedTask = await formatTaskDetails(updatedTask);
-    res.json(formattedTask);
-    
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-// Eliminar una tarea
 export const deleteTask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
-        await Task.findByIdAndDelete(taskId);
-        res.json({ message: 'Tarea eliminada con éxito.' });
+        const deletedTask = await Task.findByIdAndDelete(taskId);
+        if (!deletedTask) return res.status(404).json({ message: 'Tarea no encontrada.' });
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
-// Añadir una subtarea
 export const addSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
         const { text } = req.body;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
-
-        task.subtasks.push({ text, completed: false });
+        (task.subtasks as any).push({ text });
         await task.save();
-
         const formattedTask = await formatTaskDetails(task);
         res.status(201).json(formattedTask);
     } catch (error) {
@@ -1463,7 +1439,6 @@ export const addSubtask = async (req: Request, res: Response) => {
     }
 };
 
-// Actualizar una subtarea
 export const updateSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId, subtaskId } = req.params;
@@ -1485,16 +1460,13 @@ export const updateSubtask = async (req: Request, res: Response) => {
     }
 };
 
-// Eliminar una subtarea
 export const deleteSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId, subtaskId } = req.params;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
-
         (task.subtasks as any).pull({ _id: subtaskId });
         await task.save();
-        
         const formattedTask = await formatTaskDetails(task);
         res.json(formattedTask);
     } catch (error) {
@@ -1502,13 +1474,10 @@ export const deleteSubtask = async (req: Request, res: Response) => {
     }
 };
 
-// Obtener tareas asignadas al usuario
 export const getAssignedTasks = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        const tasks = await Task.find({ assignees: userId })
-            .populate('project', 'name')
-            .populate('labels');
+        const tasks = await Task.find({ assignees: userId }).populate('project', 'name color');
         res.json(tasks);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
@@ -1638,10 +1607,30 @@ export const getMyProfile = async (req: Request, res: Response) => {
 export const updateProfile = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        const updatedUser = await User.findByIdAndUpdate(userId, req.body, { new: true });
+        
+        // 1. Extraemos los datos del cuerpo de la petición.
+        const { name, bio, title, timezone, skills } = req.body;
+
+        // 2. Creamos un objeto para la actualización, mapeando los nombres correctos.
+        const updateData: any = {
+            name,
+            bio,
+            jobTitle: title, // <-- Aquí está la corrección clave
+            timezone,
+            skills,
+        };
+
+        // 3. Eliminamos cualquier campo que no se haya enviado para no sobrescribir con 'undefined'.
+        Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+
+        // 4. Actualizamos la base de datos con los datos ya mapeados.
+        const updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true });
+
         if (!updatedUser) {
-            return res.status(404).json({ error: "Usuario no encontrado." });
+            return res.status(404).json({ error: "Usuario no encontrado" });
         }
+        
+        // 5. Devolvemos el perfil completo y bien formateado, igual que en getMyProfile.
         res.json({
             id: updatedUser._id,
             name: updatedUser.name,
@@ -1665,17 +1654,29 @@ export const uploadAvatar = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "No se subió ningún archivo." });
         }
         const userId = (req.user as IJwtPayload).id;
+        
+        const avatarUrl = req.file.path;
 
-        // Lógica condicional: si es un test, usamos una URL falsa. Si no, la real de Cloudinary.
-        const avatarUrl = process.env.NODE_ENV === 'test' 
-            ? `https://fake.cloudinary.url/${req.file.originalname}` 
-            : req.file.path;
+        // 1. Actualizamos el usuario y le pedimos que nos devuelva el documento actualizado.
+        const updatedUser = await User.findByIdAndUpdate(userId, { avatarUrl }, { new: true });
 
-        await User.findByIdAndUpdate(userId, { avatarUrl });
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
 
-        res.status(200).json({ url: avatarUrl });
+        // 2. Devolvemos el perfil de usuario completo y formateado.
+        res.status(200).json({
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            avatarUrl: updatedUser.avatarUrl,
+            bannerUrl: updatedUser.bannerUrl,
+            title: updatedUser.jobTitle,
+            bio: updatedUser.bio,
+            timezone: updatedUser.timezone,
+            skills: updatedUser.skills,
+        });
     } catch (error) {
-        console.error('--- ERROR DETALLADO EN EL TEST DE AVATAR ---', error);
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
@@ -1688,15 +1689,28 @@ export const uploadBanner = async (req: Request, res: Response) => {
         }
         const userId = (req.user as IJwtPayload).id;
         
-        const bannerUrl = process.env.NODE_ENV === 'test' 
-            ? `https://fake.cloudinary.url/${req.file.originalname}` 
-            : req.file.path;
+        const bannerUrl = req.file.path;
 
-        await User.findByIdAndUpdate(userId, { bannerUrl });
+        // 1. Actualizamos y obtenemos el usuario completo.
+        const updatedUser = await User.findByIdAndUpdate(userId, { bannerUrl }, { new: true });
 
-        res.status(200).json({ url: bannerUrl });
+        if (!updatedUser) {
+            return res.status(404).json({ error: "Usuario no encontrado." });
+        }
+
+        // 2. Devolvemos el perfil de usuario completo y formateado.
+        res.status(200).json({
+            id: updatedUser._id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            avatarUrl: updatedUser.avatarUrl,
+            bannerUrl: updatedUser.bannerUrl,
+            title: updatedUser.jobTitle,
+            bio: updatedUser.bio,
+            timezone: updatedUser.timezone,
+            skills: updatedUser.skills,
+        });
     } catch (error) {
-        console.error('--- ERROR DETALLADO EN EL TEST DE BANNER ---', error);
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
@@ -10831,6 +10845,9 @@ import * as projectController from '../controllers/project.controller';
 import * as taskController from '../controllers/task.controller';
 import authMiddleware from '../middleware/auth.middleware';
 import uploader from '../config/cloudinary.config';
+import { getProjectActivity, /* otros controladores de proyecto */ } from '../controllers/project.controller';
+
+
 
 const router = Router();
 
@@ -10856,10 +10873,11 @@ router.delete('/:projectId', projectController.deleteProject);
 router.post('/:projectId/invitations', projectController.addMember);
 
 /* --- Rutas de Tareas Anidadas --- */
-router.get('/:projectId/tasks', taskController.getTasksForProject);
 router.post('/:projectId/tasks', taskController.createTask);
 router.put('/:projectId/tasks/:taskId', taskController.updateTask);
 router.delete('/:projectId/tasks/:taskId', taskController.deleteTask);
+
+router.get('/:projectId/activity', getProjectActivity);
 
 export default router;
 

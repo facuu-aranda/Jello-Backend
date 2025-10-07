@@ -2,219 +2,158 @@ import { Request, Response } from 'express';
 import { Task, ITask } from '../models/Task.model';
 import { Project } from '../models/Project.model';
 import { Notification } from '../models/Notification.model';
-import { Activity } from '../models/Activity.model';
 import { Comment } from '../models/Comment.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
-import mongoose from 'mongoose';
+import { createActivityLog } from '../services/activity.service';
 
-// =================================================================================
-// Helper para formatear la respuesta de una tarea al formato TaskDetails
-// =================================================================================
 const formatTaskDetails = async (task: ITask) => {
-    // Populamos los campos que puedan no estarlo
     const populatedTask = await task.populate([
         { path: 'assignees', select: 'name avatarUrl' },
         { path: 'labels' }
     ]);
 
-    // Buscamos los comentarios asociados a la tarea
     const comments = await Comment.find({ task: (populatedTask as any)._id })
         .populate('author', 'name avatarUrl')
         .sort({ createdAt: 'desc' });
 
-    // Casteamos populatedTask a 'any' para acceder a sus propiedades de forma segura.
     const populatedTaskAny = populatedTask as any;
 
-    // Mapeamos todos los campos al formato esperado por el frontend
     return {
         id: populatedTaskAny._id.toString(),
         title: populatedTaskAny.title,
         description: populatedTaskAny.description,
         status: populatedTaskAny.status,
         priority: populatedTaskAny.priority,
-        dueDate: populatedTaskAny.dueDate ? populatedTaskAny.dueDate.toISOString() : null,
-        projectId: populatedTaskAny.project._id ? populatedTaskAny.project._id.toString() : populatedTaskAny.project.toString(),
-        labels: populatedTaskAny.labels.map((label: any) => ({
-            id: label._id.toString(),
-            name: label.name,
-            color: label.color,
+        labels: populatedTaskAny.labels.map((l: any) => ({ id: l._id, name: l.name, color: l.color })),
+        assignees: populatedTaskAny.assignees.map((a: any) => ({ id: a._id, name: a.name, avatarUrl: a.avatarUrl })),
+        dueDate: populatedTaskAny.dueDate,
+        subtasks: populatedTaskAny.subtasks.map((s: any) => ({ id: s._id, text: s.text, completed: s.completed })),
+        comments: comments.map((c: any) => ({
+            id: c._id,
+            author: { id: (c.author as any)._id, name: (c.author as any).name, avatarUrl: (c.author as any).avatarUrl },
+            content: c.content,
+            timestamp: c.createdAt,
+            attachmentUrl: c.attachmentUrl
         })),
-        assignees: populatedTaskAny.assignees.map((assignee: any) => ({
-            id: assignee._id.toString(),
-            name: assignee.name,
-            avatarUrl: assignee.avatarUrl,
-        })),
-        subtasks: populatedTaskAny.subtasks.map((subtask: any) => ({
-            id: subtask._id.toString(),
-            text: subtask.text,
-            completed: subtask.completed,
-        })),
-        attachments: populatedTaskAny.attachments.map((attachment: any) => ({
-            id: attachment._id.toString(),
-            name: attachment.name,
-            url: attachment.url,
-            size: attachment.size,
-            type: attachment.type,
-        })),
-        comments: comments.map((comment: any) => ({
-            id: comment._id.toString(),
-            author: {
-                id: comment.author._id.toString(),
-                name: comment.author.name,
-                avatarUrl: comment.author.avatarUrl,
-            },
-            content: comment.content,
-            timestamp: comment.createdAt.toISOString(),
-        })),
+        projectId: (populatedTaskAny.project as any)._id.toString(),
     };
 };
 
-// =================================================================================
-// Funciones del controlador
-// =================================================================================
+export const createTask = async (req: Request, res: Response) => {
+    try {
+        const { title, description, priority, status, dueDate, labels, assignees, subtasks, projectId } = req.body;
+        const userId = (req.user as IJwtPayload).id;
+        const userName = (req.user as any).name;
 
-// Obtener una tarea por su ID
+        const project = await Project.findById(projectId);
+        if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
+
+        const newTask = new Task({
+            title, description, priority, status, dueDate, labels, assignees,
+            subtasks: subtasks ? subtasks.map((text: string) => ({ text })) : [],
+            project: projectId, createdBy: userId
+        });
+        await newTask.save();
+        
+        if (assignees && assignees.length > 0) {
+            for (const assigneeId of assignees) {
+                if (assigneeId.toString() !== userId.toString()) {
+                    await new Notification({
+                        recipient: assigneeId, sender: userId, type: 'task_assigned',
+                        project: projectId, task: newTask._id,
+                        text: `${userName} te asignó la tarea "${title}" en el proyecto "${project.name}".`
+                    }).save();
+                }
+            }
+        }
+
+        // --- CORRECCIÓN AQUÍ ---
+      await createActivityLog({
+    type: 'task_created',
+    user: userId,
+    project: projectId,
+    task: (newTask as any)._id.toString(), // <-- CORRECTED LINE
+    text: `creó la tarea "${title}"`
+});
+
+        const formattedTask = await formatTaskDetails(newTask);
+        res.status(201).json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+export const updateTask = async (req: Request, res: Response) => {
+    try {
+        const { taskId } = req.params;
+        const { assignees, ...updateData } = req.body;
+        const userId = (req.user as IJwtPayload).id;
+        const userName = (req.user as any).name;
+
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
+
+        // --- CORRECCIÓN AQUÍ ---
+        const originalAssignees = task.assignees.map(id => (id as any).toString());
+
+        Object.assign(task, updateData);
+        if (assignees !== undefined) task.assignees = assignees;
+        await task.save();
+
+        if (assignees) {
+            const newAssignees = assignees.filter((id: string) => !originalAssignees.includes(id));
+            if (newAssignees.length > 0) {
+                const project = await Project.findById(task.project);
+                for (const assigneeId of newAssignees) {
+                     if (assigneeId.toString() !== userId.toString()) {
+                        await new Notification({
+                           recipient: assigneeId, sender: userId, type: 'task_assigned',
+                           project: task.project, task: task._id,
+                           text: `${userName} te asignó la tarea "${task.title}" en el proyecto "${(project as any)?.name}".`
+                        }).save();
+                    }
+                }
+            }
+        }
+        
+        const formattedTask = await formatTaskDetails(task);
+        res.json(formattedTask);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
 export const getTaskById = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
-        const userId = (req.user as IJwtPayload).id;
-
-        const task = await Task.findById(taskId).populate('project');
-
-        if (!task) {
-            return res.status(404).json({ error: "Tarea no encontrada." });
-        }
+        const task = await Task.findById(taskId);
+        if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
         
-        const project = task.project as any;
-        if (!project.members.some((m: any) => m.user.equals(userId))) {
-            return res.status(403).json({ error: "Acción no autorizada." });
-        }
-
         const formattedTask = await formatTaskDetails(task);
         res.json(formattedTask);
-
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
-// Crear una nueva tarea
-export const createTask = async (req: Request, res: Response) => {
-  try {
-    const { title, description, priority, status, dueDate, assignees, labels, project } = req.body;
-    const user = req.user as IJwtPayload;
-
-    const newTask = new Task({ title, description, priority, status, dueDate, assignees, labels, project });
-    await newTask.save();
-    
-    await new Activity({
-        type: 'task_created',
-        user: user.id,
-        project: project,
-        task: newTask._id,
-        text: `${user.name} creó la tarea "${title}".`
-    }).save();
-
-    const formattedTask = await formatTaskDetails(newTask);
-    res.status(201).json(formattedTask);
-
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-// Obtener todas las tareas de un proyecto
-export const getTasksForProject = async (req: Request, res: Response) => {
-  try {
-    const { projectId } = req.params;
-    const user = req.user as IJwtPayload;
-
-    const project = await Project.findById(projectId);
-    if (!project || !project.members.some(m => (m.user as any).equals(user.id))) {
-        return res.status(403).json({ message: "Acción no autorizada." });
-    }
-
-    const tasks = await Task.find({ project: projectId })
-      .populate('assignees', 'name avatar')
-      .populate('labels');
-    res.json(tasks);
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-// Actualizar una tarea
-export const updateTask = async (req: Request, res: Response) => {
-  try {
-    const { taskId } = req.params;
-    const updateData = req.body;
-    const user = req.user as IJwtPayload;
-
-    const task = await Task.findById(taskId).populate('project');
-    if (!task) {
-      return res.status(404).json({ message: 'Tarea no encontrada.' });
-    }
-
-    const updatedTask = await Task.findByIdAndUpdate(taskId, updateData, { new: true });
-    if (!updatedTask) {
-      return res.status(404).json({ message: 'No se pudo actualizar la tarea.' });
-    }
-    
-    // Lógica de notificación
-    if (updateData.status && updateData.status !== task.status) {
-      const project = (task.project as any);
-      const recipients = new Set<string>();
-      if (project.owner) {
-        recipients.add(project.owner.toString());
-      }
-      task.assignees.forEach((assigneeId: any) => recipients.add(assigneeId.toString()));
-
-      recipients.delete(user.id);
-
-      for (const recipientId of recipients) {
-        await new Notification({
-            recipient: recipientId,
-            sender: user.id,
-            type: 'comment',
-            status: 'unread',
-            project: project._id,
-            task: task._id,
-            text: `${user.name} actualizó el estado de la tarea "${task.title}" a "${updateData.status}".`,
-            link: `/project/${project._id}`
-        }).save();
-      }
-    }
-    
-    const formattedTask = await formatTaskDetails(updatedTask);
-    res.json(formattedTask);
-    
-  } catch (error) {
-    res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-  }
-};
-
-// Eliminar una tarea
 export const deleteTask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
-        await Task.findByIdAndDelete(taskId);
-        res.json({ message: 'Tarea eliminada con éxito.' });
+        const deletedTask = await Task.findByIdAndDelete(taskId);
+        if (!deletedTask) return res.status(404).json({ message: 'Tarea no encontrada.' });
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
-// Añadir una subtarea
 export const addSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
         const { text } = req.body;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
-
-        task.subtasks.push({ text, completed: false });
+        (task.subtasks as any).push({ text });
         await task.save();
-
         const formattedTask = await formatTaskDetails(task);
         res.status(201).json(formattedTask);
     } catch (error) {
@@ -222,7 +161,6 @@ export const addSubtask = async (req: Request, res: Response) => {
     }
 };
 
-// Actualizar una subtarea
 export const updateSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId, subtaskId } = req.params;
@@ -244,16 +182,13 @@ export const updateSubtask = async (req: Request, res: Response) => {
     }
 };
 
-// Eliminar una subtarea
 export const deleteSubtask = async (req: Request, res: Response) => {
     try {
         const { taskId, subtaskId } = req.params;
         const task = await Task.findById(taskId);
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
-
         (task.subtasks as any).pull({ _id: subtaskId });
         await task.save();
-        
         const formattedTask = await formatTaskDetails(task);
         res.json(formattedTask);
     } catch (error) {
@@ -261,13 +196,10 @@ export const deleteSubtask = async (req: Request, res: Response) => {
     }
 };
 
-// Obtener tareas asignadas al usuario
 export const getAssignedTasks = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        const tasks = await Task.find({ assignees: userId })
-            .populate('project', 'name')
-            .populate('labels');
+        const tasks = await Task.find({ assignees: userId }).populate('project', 'name color');
         res.json(tasks);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });

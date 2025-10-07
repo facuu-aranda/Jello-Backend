@@ -4,6 +4,9 @@ import * as projectController from '../controllers/project.controller';
 import * as taskController from '../controllers/task.controller';
 import authMiddleware from '../middleware/auth.middleware';
 import uploader from '../config/cloudinary.config';
+import { getProjectActivity, /* otros controladores de proyecto */ } from '../controllers/project.controller';
+
+
 
 const router = Router();
 
@@ -29,11 +32,10 @@ router.delete('/:projectId', projectController.deleteProject);
 router.post('/:projectId/invitations', projectController.addMember);
 
 /* --- Rutas de Tareas Anidadas --- */
-router.get('/:projectId/tasks', taskController.getTasksForProject);
 router.post('/:projectId/tasks', taskController.createTask);
 router.put('/:projectId/tasks/:taskId', taskController.updateTask);
 router.delete('/:projectId/tasks/:taskId', taskController.deleteTask);
 
-router.get('/projects/:projectId/activity', authMiddleware, projectController.getProjectActivity);
+router.get('/:projectId/activity', getProjectActivity);
 
 export default router;
