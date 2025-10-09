@@ -33,18 +33,19 @@ export const addAttachment = async (req: Request, res: Response) => {
         const { originalname, path, size, mimetype } = req.file;
 
         const newAttachment = {
-            _id: new mongoose.Types.ObjectId(),
+            // _id: new mongoose.Types.ObjectId(), // <-- LÍNEA ELIMINADA
             name: originalname,
-            url: path, // La URL de Cloudinary está en 'path'
-            size: `${(size / 1024).toFixed(1)} KB`, // Formateamos el tamaño para consistencia
-            type: mimetype.startsWith('image/') ? 'image' : 'document' // Determinamos el tipo
+            url: path,
+            size: `${(size / 1024).toFixed(1)} KB`,
+            type: mimetype.startsWith('image/') ? 'image' : 'document'
         };
-        // --- FIN DE LA CORRECCIÓN ---
 
         task.attachments.push(newAttachment as any);
         await task.save();
 
-        res.status(201).json(newAttachment);
+        // Mongoose habrá añadido un _id, lo devolvemos buscando el último elemento.
+        const createdAttachment = task.attachments[task.attachments.length - 1];
+        res.status(201).json(createdAttachment);
 
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
