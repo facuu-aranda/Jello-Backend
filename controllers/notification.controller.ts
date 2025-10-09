@@ -4,15 +4,58 @@ import { Notification } from '../models/Notification.model';
 import { Project } from '../models/Project.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
+
+// GET /api/notifications
 export const getNotifications = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
+        // NUEVO: Añadimos soporte para el query param 'limit'
+        const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
+
         const notifications = await Notification.find({ recipient: userId })
-            .sort({ createdAt: -1 }) 
-            .limit(30)
+            .sort({ createdAt: -1 })
+            .limit(limit) // Usamos el límite
             .populate('sender', 'name avatarUrl')
             .populate('project', 'name');
+            
         res.json(notifications);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// PUT /api/notifications/read (Marca todas como leídas)
+export const markAllAsRead = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        // CORREGIDO: Actualizamos el campo 'read' a 'true' donde sea 'false'
+        await Notification.updateMany(
+            { recipient: userId, read: false },
+            { read: true }
+        );
+        res.status(200).json({ message: 'Notificaciones marcadas como leídas.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// NUEVA FUNCIÓN: PUT /api/notifications/:notificationId/read (Marca una como leída)
+export const markOneAsRead = async (req: Request, res: Response) => {
+    try {
+        const { notificationId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+
+        const notification = await Notification.findOneAndUpdate(
+            { _id: notificationId, recipient: userId },
+            { read: true },
+            { new: true }
+        );
+
+        if (!notification) {
+            return res.status(404).json({ message: "Notificación no encontrada o sin autorización." });
+        }
+
+        res.status(200).json(notification);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
@@ -54,19 +97,6 @@ export const respondToNotification = async (req: Request, res: Response) => {
         res.json(notification);
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
-    }
-};
-
-export const markAsRead = async (req: Request, res: Response) => {
-    try {
-        const userId = (req.user as IJwtPayload).id;
-        await Notification.updateMany(
-            { recipient: userId, status: 'unread' },
-            { status: 'read' }
-        );
-        res.status(200).json({ message: 'Notificaciones marcadas como leídas.' });
-    } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
 
