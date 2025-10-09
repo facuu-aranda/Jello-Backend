@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, RequestHandler } from 'express';
 import { Task, ITask } from '../models/Task.model';
 import { Project } from '../models/Project.model';
 import { Notification } from '../models/Notification.model';
@@ -53,12 +53,18 @@ export const createTask = async (req: Request, res: Response) => {
         const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : labels;
         const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : assignees;
 
+        const attachments = (req.files as Express.Multer.File[])?.map(file => ({
+            name: file.originalname,
+            url: file.path,
+            size: `${(file.size / 1024).toFixed(1)} KB`,
+            type: file.mimetype.startsWith('image/') ? 'image' : 'document'
+        })) || [];
+
         const newTask = new Task({
-            title, description, priority, status, dueDate,
-            labels: parsedLabels,      // <-- Usar la variable parseada
-            assignees: parsedAssignees,  // <-- Usar la variable parseada
+            title, description, priority, status, dueDate, labels: parsedLabels, assignees,
             subtasks: subtasks ? subtasks.map((text: string) => ({ text })) : [],
-            project: projectId, createdBy: userId
+            project: projectId, createdBy: userId,
+            attachments: attachments 
         });
         await newTask.save();
         
