@@ -1,10 +1,10 @@
 ================================================================================
-INICIO DEL ANÁLISIS DEL PROYECTO
+INICIO DEL ANÁLISIS DEL PROYECTO (Generado con Node.js)
 ================================================================================
 
 Hola, soy un script automatizado. Este archivo contiene la estructura completa y el código fuente del proyecto solicitado.
 
-NOTA IMPORTANTE: Este resumen excluye deliberadamente el contenido de los archivos de prueba (aquellos que contienen '.test' en su nombre). Sin embargo, estos archivos SÍ aparecen en la estructura de directorios a continuación para mantener la integridad del árbol del proyecto.
+La primera sección muestra el árbol de directorios y archivos. La segunda sección contiene el contenido de cada archivo.
 
 --------------------------------------------------------------------------------
 SECCIÓN 1: ESTRUCTURA DE ARCHIVOS Y DIRECTORIOS
@@ -144,7 +144,7 @@ if (process.env.NODE_ENV === 'test') {
     cloudinary,
     params: {
       folder: 'jello-app',
-      allowed_formats: ['jpg', 'png', 'pdf', 'gif', 'webp']
+      allowed_formats: ['jpg', 'png', 'pdf', 'gif']
     } as any 
   });
 }
@@ -521,12 +521,12 @@ export const addComment = async (req: Request, res: Response) => {
     const project = task.project as any;
     // --- CORRECCIÓN AQUÍ ---
     await createActivityLog({
-    type: 'comment_added',
-    user: author.id,
-    project: (task.project as any)._id.toString(),
-    task: (task as any)._id.toString(), // <-- CORRECTED LINE
-    text: `comentó en la tarea "${task.title}"`
-});
+        type: 'comment_added',
+        user: author.id,
+        project: project._id.toString(), // Convertimos el ObjectId a string
+        task: task._id.toString(),      // Convertimos el ObjectId a string
+        text: `comentó en la tarea "${task.title}"`
+    });
 
     const populatedComment = await newComment.populate('author', 'name avatarUrl');
 
@@ -1276,7 +1276,7 @@ export const globalSearch = async (req: Request, res: Response) => {
 
 ############################## INICIO DEL ARCHIVO: controllers\task.controller.ts ##############################
 
-import { Request, Response, RequestHandler } from 'express';
+import { Request, Response } from 'express';
 import { Task, ITask } from '../models/Task.model';
 import { Project } from '../models/Project.model';
 import { Notification } from '../models/Notification.model';
@@ -1306,7 +1306,6 @@ const formatTaskDetails = async (task: ITask) => {
         assignees: populatedTaskAny.assignees.map((a: any) => ({ id: a._id, name: a.name, avatarUrl: a.avatarUrl })),
         dueDate: populatedTaskAny.dueDate,
         subtasks: populatedTaskAny.subtasks.map((s: any) => ({ id: s._id, text: s.text, completed: s.completed })),
-        attachments: populatedTaskAny.attachments,
         comments: comments.map((c: any) => ({
             id: c._id,
             author: { id: (c.author as any)._id, name: (c.author as any).name, avatarUrl: (c.author as any).avatarUrl },
@@ -1320,19 +1319,15 @@ const formatTaskDetails = async (task: ITask) => {
 
 export const createTask = async (req: Request, res: Response) => {
     try {
-        const { projectId } = req.params; // <-- 1. Read from URL parameters
-        const { title, description, priority, status, dueDate, labels, assignees, subtasks } = req.body; // <-- 2. Remove projectId from here
+        const { title, description, priority, status, dueDate, labels, assignees, subtasks, projectId } = req.body;
         const userId = (req.user as IJwtPayload).id;
         const userName = (req.user as any).name;
 
         const project = await Project.findById(projectId);
         if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
 
-        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : labels;
-        const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : assignees;
-
         const newTask = new Task({
-            title, description, priority, status, dueDate, labels: parsedLabels, assignees,
+            title, description, priority, status, dueDate, labels, assignees,
             subtasks: subtasks ? subtasks.map((text: string) => ({ text })) : [],
             project: projectId, createdBy: userId
         });
@@ -1351,13 +1346,13 @@ export const createTask = async (req: Request, res: Response) => {
         }
 
         // --- CORRECCIÓN AQUÍ ---
-      await createActivityLog({
-    type: 'task_created',
-    user: userId,
-    project: projectId,
-    task: (newTask as any)._id.toString(), // <-- CORRECTED LINE
-    text: `creó la tarea "${title}"`
-});
+        await createActivityLog({
+            type: 'task_created', 
+            user: userId, 
+            project: projectId, 
+            task: newTask._id.toString(), // Convertimos el ObjectId a string
+            text: `creó la tarea "${title}"`
+        });
 
         const formattedTask = await formatTaskDetails(newTask);
         res.status(201).json(formattedTask);
@@ -1488,552 +1483,6 @@ export const getAssignedTasks = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };
-
-/*
-el problema no es que el backend no pueda manejar archivos, sino que los endpoints específicos para las tareas no están configurados correctamente para hacerlo.
-
-Error al Crear Tarea con Adjunto: El endpoint POST /api/projects/:projectId/tasks casi con seguridad no tiene aplicado el middleware multer. Por eso, no sabe cómo interpretar el formato FormData y te devuelve el error de que no encuentra la propiedad 'title'.
-
-Error al Agregar Adjunto a Tarea Existente: El endpoint POST /api/tasks/:taskId/attachments sí parece usar multer (ya que no rechaza el archivo), pero tiene un bug en su lógica interna. Procesa el archivo pero no extrae sus datos (nombre, URL, etc.) antes de intentar guardarlo en la base de datos, lo que resulta en el Cast to string failed que ya vimos.
-
-Dado que la solución más robusta y permanente requiere un ajuste en el backend, la estrategia que te propuse en el paso anterior sigue siendo la solución definitiva desde el lado del frontend. Implementa un workaround de dos pasos que se salta estos problemas específicos de los endpoints de tareas.
-
-Te proporciono nuevamente el código corregido y completo para ambos archivos. Este código ya implementa la solución de dos pasos.
-
-1. Página del Proyecto (app/project/[projectId]/page.tsx)
-Esta es la función handleCreateTask que orquesta el proceso. Primero crea la tarea con los datos de texto y, si tiene éxito, sube los archivos adjuntos.
-
-TypeScript
-
-// Jello-Frontend/app/project/[projectId]/page.tsx
-
-"use client"
-
-import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import { useApi } from '@/hooks/useApi'
-import { ProjectDetails, TaskSummary, TaskDetails } from '@/types'
-import { AppLayout } from '@/components/layout/app-layout'
-import { KanbanBoard } from '@/components/kanban/kanban-board'
-import { TaskModal } from '@/components/tasks/task-modal'
-import { CreateTaskModal } from '@/components/modals/create-task-modal'
-import { ProjectHeader } from '@/components/project-header'
-import { EditProjectModal } from '@/components/modals/edit-project-modal'
-import { AddMemberModal } from '@/components/modals/AddMemberModal'
-import { apiClient } from '@/lib/api'
-import { toast } from 'sonner'
-import { Skeleton } from '@/components/ui/skeleton'
-import type { DropResult } from '@hello-pangea/dnd';
-import { ActivityFeed } from '@/components/activity/ActivityFeed'
-
-// Importamos la interfaz del formulario del modal para tener un tipado correcto.
-import type { CreateTaskFormData } from '@/components/modals/create-task-modal'
-
-export default function ProjectPage() {
-  const params = useParams();
-  const router = useRouter();
-  const projectId = params.projectId as string;
-
-  const { data: project, isLoading, error, refetch, setData: setProject } = useApi<ProjectDetails>(`/projects/${projectId}`);
-  
-  const [selectedTask, setSelectedTask] = React.useState<TaskDetails | null>(null);
-  const [isTaskModalOpen, setIsTaskModalOpen] = React.useState(false);
-  const [isCreateTaskModalOpen, setIsCreateTaskModalOpen] = React.useState(false);
-  const [defaultStatusForCreate, setDefaultStatusForCreate] = React.useState<'todo' | 'in-progress' | 'review' | 'done'>('todo');
-
-  const [isEditModalOpen, setIsEditModalOpen] = React.useState(false);
-  const [isInviteModalOpen, setIsInviteModalOpen] = React.useState(false);
-
-  const handleTaskStatusChange = async (result: DropResult) => {
-    if (!project) return;
-    
-    const { source, destination, draggableId } = result;
-    if (!destination) return;
-
-    const originalProject = { ...project };
-
-    const sourceColumnId = source.droppableId as keyof ProjectDetails['tasksByStatus'];
-    const destColumnId = destination.droppableId as keyof ProjectDetails['tasksByStatus'];
-
-    const sourceTasks = [...originalProject.tasksByStatus[sourceColumnId]];
-    const destTasks = source.droppableId === destination.droppableId ? sourceTasks : [...originalProject.tasksByStatus[destColumnId]];
-    
-    const [movedTask] = sourceTasks.splice(source.index, 1);
-    
-    if (!movedTask) return;
-
-    movedTask.status = destColumnId;
-    destTasks.splice(destination.index, 0, movedTask);
-
-    const newProjectState = {
-        ...originalProject,
-        tasksByStatus: {
-            ...originalProject.tasksByStatus,
-            [sourceColumnId]: sourceTasks,
-            [destColumnId]: destTasks,
-        }
-    };
-    
-    setProject(newProjectState);
-
-    try {
-      await apiClient.put(`/projects/${projectId}/tasks/${draggableId}`, { status: destColumnId });
-    } catch (err) {
-        toast.error("Failed to update task status. Reverting changes.");
-        setProject(originalProject);
-    }
-  };
-  
-  const handleTaskClick = async (taskSummary: TaskSummary) => {
-    try {
-      toast.info("Loading task details...");
-      const detailedTask = await apiClient.get<TaskDetails>(`/tasks/${taskSummary.id}`);
-      setSelectedTask(detailedTask);
-      setIsTaskModalOpen(true);
-      toast.dismiss();
-    } catch (err) {
-      toast.error("Failed to load task details.");
-    }
-  }
-  
-  const handleOpenCreateTaskModal = (columnId: string) => {
-    setDefaultStatusForCreate(columnId as 'todo' | 'in-progress' | 'review' | 'done');
-    setIsCreateTaskModalOpen(true);
-  }
-
-  // --- CÓDIGO CORREGIDO: Lógica de 2 pasos para crear tarea con adjuntos ---
-  const handleCreateTask = async (formData: CreateTaskFormData) => {
-    setIsCreateTaskModalOpen(false);
-    toast.info("Creating new task...");
-
-    // 1. Separa los archivos del resto de los datos del formulario.
-    const { attachments, ...taskPayloadJSON } = formData;
-    
-    // 2. Prepara el objeto JSON solo con los datos de texto para la creación inicial.
-    const taskDataForAPI = {
-      ...taskPayloadJSON,
-      labels: taskPayloadJSON.labels.map(l => l._id), // Envía solo los IDs.
-      dueDate: taskPayloadJSON.dueDate?.toISOString(),
-      project: projectId,
-    };
-
-    try {
-      // 3. Envía la petición para crear la tarea. Esperamos que devuelva la tarea creada.
-      const newTask = await apiClient.post<TaskSummary>(`/projects/${projectId}/tasks`, taskDataForAPI);
-      toast.success(`Task "${newTask.title}" created!`);
-
-      // 4. Si hay adjuntos y la tarea se creó correctamente, los subimos.
-      if (attachments && attachments.length > 0 && newTask.id) {
-        toast.info(`Uploading ${attachments.length} file(s)...`);
-        
-        const uploadPromises = attachments.map(file => {
-          const attachmentFormData = new FormData();
-          attachmentFormData.append('file', file);
-          // Usa el endpoint específico para adjuntos con el ID de la nueva tarea.
-          return apiClient.post(`/tasks/${newTask.id}/attachments`, attachmentFormData);
-        });
-
-        // Espera a que todas las subidas de archivos terminen.
-        await Promise.all(uploadPromises);
-        toast.success('Attachments uploaded successfully!');
-      }
-
-      // 5. Finalmente, refresca toda la data del proyecto para que la UI esté 100% sincronizada.
-      refetch();
-
-    } catch (err) {
-      toast.error(`Failed to create task: ${(err as Error).message}`);
-    }
-  };
-
-  const handleEditProject = async (formData: FormData) => {
-    if (!project) return;
-    toast.info("Saving changes...");
-    try {
-      await apiClient.put(
-        `/projects/${project.id}`,
-        formData
-      );
-      
-      await refetch();
-      
-      toast.success("Project updated successfully!");
-      setIsEditModalOpen(false);
-
-    } catch (error) {
-      toast.error((error as Error).message);
-    }
-  }
-  
-  const handleDeleteProject = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this project? This action cannot be undone.")) return;
-    toast.info("Deleting project...");
-    try {
-      await apiClient.del(`/projects/${id}`);
-      toast.success("Project deleted.");
-      router.push('/projects');
-    } catch (err) {
-      toast.error((err as Error).message);
-    }
-  }
-
-  if (isLoading) {
-    return (
-        <AppLayout>
-            <div className="p-8 space-y-6">
-                <Skeleton className="h-12 w-1/3" />
-                <Skeleton className="h-8 w-2/3" />
-                <div className="flex gap-6 h-[calc(100vh-200px)]">
-                    <Skeleton className="w-96 h-full" />
-                    <Skeleton className="w-96 h-full" />
-                    <Skeleton className="w-96 h-full" />
-                </div>
-            </div>
-        </AppLayout>
-    )
-  }
-
-  if (error) {
-    return <AppLayout><div>Error loading project.</div></AppLayout>
-  }
-
-  if (!project) {
-    return <AppLayout><div>Project not found.</div></AppLayout>
-  }
-
-  return (
-    <>
-      <AppLayout>
-        <div className="space-y-6">
-          <ProjectHeader 
-            project={project!} 
-            onEdit={() => setIsEditModalOpen(true)}
-            onInviteMembers={() => setIsInviteModalOpen(true)}
-          />
-          <div className="min-h-[65vh]">
-            <KanbanBoard
-              project={project!}
-              onTaskStatusChange={handleTaskStatusChange}
-              onTaskClick={handleTaskClick}
-              onAddTask={handleOpenCreateTaskModal}
-            />
-          </div>
-          <div className="border-t border-border p-6">
-            <ActivityFeed projectId={projectId} />
-          </div>
-        </div>
-      </AppLayout>
-
-      {selectedTask && ( <TaskModal isOpen={isTaskModalOpen} onClose={() => setIsTaskModalOpen(false)} task={selectedTask} onDataChange={refetch} /> )}
-      <CreateTaskModal isOpen={isCreateTaskModalOpen} onClose={() => setIsCreateTaskModalOpen(false)} onSubmit={handleCreateTask} defaultStatus={defaultStatusForCreate} projectId={projectId} />
-      {project && <EditProjectModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} onSubmit={handleEditProject} onDelete={handleDeleteProject} project={project} onDataChange={refetch} />}
-      {project && <AddMemberModal isOpen={isInviteModalOpen} onClose={() => setIsInviteModalOpen(false)} projectId={project.id} onInviteSent={refetch} currentMembers={project.members.map(m => m.id)} />}
-    </>
-  )
-}
-2. Código Completo del Modal (components/modals/create-task-modal.tsx)
-Este archivo ahora solo se encarga de recolectar todos los datos (texto y archivos) y pasárselos a su componente padre para que él decida cómo enviarlos a la API.
-
-TypeScript
-
-// Jello-Frontend/components/modals/create-task-modal.tsx
-"use client"
-
-import * as React from "react"
-import { motion } from "framer-motion"
-import { X, Calendar, Flag, Tag, Users, Plus } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Modal, ModalContent, ModalHeader } from "@/components/ui/modal"
-import { DatePicker } from "@/components/ui/date-picker"
-import { cn } from "@/lib/utils"
-import { TaskSummary, Label, UserSummary, ProjectDetails, Attachment } from "@/types"
-import { AssigneeSelector } from "@/components/forms/assignee-selector"
-import { useApi } from "@/hooks/useApi"
-import { Skeleton } from "@/components/ui/skeleton"
-import { AttachmentList } from "../tasks/attachment-list"
-
-type TaskStatus = 'todo' | 'in-progress' | 'review' | 'done';
-type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
-
-// Exportamos esta interfaz para poder usarla en la página del proyecto
-export interface CreateTaskFormData {
-  title: string;
-  description: string;
-  priority: TaskPriority;
-  status: TaskStatus;
-  dueDate: Date | undefined;
-  labels: Label[];
-  assignees: string[];
-  subtasks: string[];
-  attachments: File[];
-}
-
-interface CreateTaskModalProps {
-  isOpen: boolean
-  onClose: () => void
-  onSubmit: (taskData: CreateTaskFormData) => void // Prop onSubmit ahora espera el objeto de estado completo
-  defaultStatus?: TaskStatus
-  projectId?: string
-}
-
-const priorityOptions: { value: TaskPriority, label: string, color: string }[] = [
-  { value: "low", label: "Low", color: "text-green-500" },
-  { value: "medium", label: "Medium", color: "text-yellow-500" },
-  { value: "high", label: "High", color: "text-orange-500" },
-  { value: "critical", label: "Critical", color: "text-red-500" },
-];
-
-const statusOptions: { value: TaskStatus, label: string }[] = [
-  { value: "todo", label: "To Do" },
-  { value: "in-progress", label: "In Progress" },
-  { value: "review", label: "Review" },
-  { value: "done", label: "Done" },
-];
-
-export function CreateTaskModal({ isOpen, onClose, onSubmit, defaultStatus = 'todo', projectId }: CreateTaskModalProps) {
-  const [formData, setFormData] = React.useState<CreateTaskFormData>({
-    title: "",
-    description: "",
-    priority: "medium",
-    status: defaultStatus,
-    dueDate: undefined,
-    labels: [],
-    assignees: [],
-    subtasks: [],
-    attachments: [],
-  });
-  
-  const { data: project, isLoading: isLoadingProject } = projectId ? useApi<ProjectDetails>(`/projects/${projectId}`) : { data: undefined, isLoading: false };
-  const { data: availableLabels, isLoading: isLoadingLabels } = projectId ? useApi<Label[]>(`/projects/${projectId}/labels`) : { data: [], isLoading: false };
-
-  const [errors, setErrors] = React.useState<Record<string, string>>({})
-  const [newSubtask, setNewSubtask] = React.useState("")
-
-  React.useEffect(() => {
-    if (isOpen) {
-      setFormData(prev => ({ ...prev, status: defaultStatus }));
-    } else {
-      // Resetea completamente el formulario al cerrar
-      setFormData({
-        title: "", description: "", priority: "medium", status: defaultStatus,
-        dueDate: undefined, labels: [], assignees: [], subtasks: [], attachments: [],
-      });
-      setErrors({});
-    }
-  }, [defaultStatus, isOpen]);
-
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {}
-    if (!formData.title.trim()) {
-      newErrors.title = "Task title is required"
-    }
-    setErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (validateForm()) {
-      // Ya no construye FormData, solo pasa el estado local al padre.
-      onSubmit(formData);
-    }
-  }
-
-  const toggleLabel = (label: Label) => {
-    setFormData((prev) => {
-      const isSelected = prev.labels.some(l => l._id === label._id);
-      return {
-        ...prev,
-        labels: isSelected
-          ? prev.labels.filter((l) => l._id !== label._id)
-          : [...prev.labels, label],
-      };
-    });
-  };
-
-  const addSubtask = () => {
-    if (newSubtask.trim()) {
-      setFormData((prev) => ({ ...prev, subtasks: [...prev.subtasks, newSubtask.trim()] }))
-      setNewSubtask("")
-    }
-  }
-
-  const removeSubtask = (index: number) => {
-    setFormData((prev) => ({ ...prev, subtasks: prev.subtasks.filter((_, i) => i !== index) }))
-  }
-
-  const handleAttachmentAdd = (files: FileList) => {
-    setFormData(prev => ({ ...prev, attachments: [...prev.attachments, ...Array.from(files)] }));
-  };
-
-  const handleAttachmentDelete = (fileName: string) => {
-    setFormData(prev => ({ ...prev, attachments: prev.attachments.filter(f => f.name !== fileName) }));
-  };
-  
-  const attachmentLikeFiles: Attachment[] = formData.attachments.map((file, index) => ({
-    id: `${file.name}-${index}`,
-    name: file.name,
-    url: '',
-    size: `${(file.size / 1024).toFixed(1)} KB`,
-    type: file.type.startsWith('image/') ? 'image' : 'document',
-  }));
-
-  return (
-    <Modal open={isOpen} onOpenChange={onClose}>
-      <ModalContent className="max-h-[95vh] overflow-hidden max-w-3xl">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          transition={{ type: "spring", stiffness: 300, damping: 20 }}
-        >
-          <ModalHeader className="border-b border-border pb-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg sm:text-xl font-semibold text-foreground">Create New Task</h2>
-              <Button variant="ghost" size="icon" onClick={onClose}>
-                <X className="w-4 h-4" />
-              </Button>
-            </div>
-          </ModalHeader>
-
-          <form onSubmit={handleSubmit} className="overflow-y-auto max-h-[calc(95vh-120px)]">
-            <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Task Title *</label>
-                <Input
-                  value={formData.title}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
-                  placeholder="Enter task title..."
-                  className={errors.title ? "border-destructive" : ""}
-                />
-                {errors.title && <p className="text-sm text-destructive">{errors.title}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Description</label>
-                <Textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder="Describe the task..."
-                  className="min-h-[80px] sm:min-h-[100px]"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground flex items-center gap-2"><Flag className="w-4 h-4" />Priority</label>
-                  <Select value={formData.priority} onValueChange={(value: TaskPriority) => setFormData((prev) => ({ ...prev, priority: value }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {priorityOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          <div className="flex items-center gap-2">
-                            <div className={cn("w-2 h-2 rounded-full", option.color.replace("text-", "bg-"))} />
-                            {option.label}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Status</label>
-                  <Select value={formData.status} onValueChange={(value: TaskStatus) => setFormData((prev) => ({ ...prev, status: value }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {statusOptions.map((option) => (<SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium flex items-center gap-2"><Calendar className="w-4 h-4" /> Due Date</label>
-                <DatePicker date={formData.dueDate} setDate={(date) => setFormData(prev => ({ ...prev, dueDate: date }))} />
-              </div>
-
-              {(!isLoadingLabels && availableLabels && availableLabels.length > 0) && (
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-foreground flex items-center gap-2"><Tag className="w-4 h-4" />Labels</label>
-                  <div className="flex flex-wrap gap-2">
-                    {availableLabels.map((label) => {
-                      const isSelected = formData.labels.some(l => l._id === label._id);
-                      return (
-                        <motion.button 
-                          key={label._id} type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} 
-                          onClick={() => toggleLabel(label)}
-                          className={cn("px-2 py-1 sm:px-3 sm:py-1 rounded-full text-xs sm:text-sm font-medium border-2 transition-all min-h-[32px] touch-manipulation",
-                            isSelected ? "border-transparent text-white" : "border-border text-foreground hover:bg-muted"
-                          )}
-                          style={isSelected ? { backgroundColor: label.color } : {}}>
-                          {label.name}
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-foreground flex items-center gap-2"><Users className="w-4 h-4" />Assignees</label>
-                <div className="space-y-2 max-h-40 sm:max-h-48 overflow-y-auto">
-                  {isLoadingProject || !project ? (
-                    <div className="space-y-2"><Skeleton className="h-10 w-full" /><Skeleton className="h-10 w-full" /></div>
-                  ) : (
-                    <AssigneeSelector
-                      projectMembers={project.members}
-                      selectedAssignees={formData.assignees}
-                      onSelectionChange={(ids) => setFormData(prev => ({ ...prev, assignees: ids }))}
-                    />
-                  )}
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-foreground">Subtasks</label>
-                <div className="space-y-2">
-                  {formData.subtasks.map((subtask, index) => (
-                    <div key={index} className="flex items-center gap-2 p-2 bg-muted rounded-lg min-h-[40px]">
-                      <span className="flex-1 text-sm">{subtask}</span>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => removeSubtask(index)} className="min-h-[32px] min-w-[32px]"><X className="w-4 h-4" /></Button>
-                    </div>
-                  ))}
-                  <div className="flex gap-2">
-                    <Input value={newSubtask} onChange={(e) => setNewSubtask(e.target.value)} placeholder="Add a subtask..." onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addSubtask())} className="min-h-[40px]" />
-                    <Button type="button" onClick={addSubtask} disabled={!newSubtask.trim()} className="min-h-[40px] min-w-[40px]"><Plus className="w-4 h-4" /></Button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <AttachmentList
-                  taskId="" // No es necesario para la creación
-                  attachments={attachmentLikeFiles}
-                  isEditing={true}
-                  onAttachmentAdd={handleAttachmentAdd}
-                  // Buscamos por el ID temporal para eliminarlo del estado local
-                  onAttachmentDelete={(id) => {
-                    const fileToDelete = attachmentLikeFiles.find(f => f.id === id);
-                    if (fileToDelete) handleAttachmentDelete(fileToDelete.name);
-                  }}
-                />
-              </div>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-3 p-4 sm:p-6 pt-4 border-t border-border">
-              <Button type="submit" className="w-full sm:flex-1 min-h-[44px]">Create Task</Button>
-              <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto min-h-[44px] bg-transparent">Cancel</Button>
-            </div>
-          </form>
-        </motion.div>
-      </ModalContent>
-    </Modal>
-  )
-}
-*/
 
 ############################## FIN DEL ARCHIVO: controllers\task.controller.ts ##################################
 
@@ -11396,7 +10845,7 @@ import * as projectController from '../controllers/project.controller';
 import * as taskController from '../controllers/task.controller';
 import authMiddleware from '../middleware/auth.middleware';
 import uploader from '../config/cloudinary.config';
-import { getProjectActivity} from '../controllers/project.controller';
+import { getProjectActivity, /* otros controladores de proyecto */ } from '../controllers/project.controller';
 
 
 
@@ -11404,6 +10853,10 @@ const router = Router();
 
 router.use(authMiddleware);
 
+// --- CÓDIGO MODIFICADO ---
+// Se utiliza uploader.fields() para decirle a Multer qué archivos esperar.
+// Esto permite que los campos de texto y los archivos se procesen correctamente
+// en una solicitud multipart/form-data.
 const projectUploads = uploader.fields([
     { name: 'projectImage', maxCount: 1 },
     { name: 'bannerImage', maxCount: 1 }
@@ -11790,36 +11243,385 @@ export const createActivityLog = async (options: ActivityLogOptions) => {
 
 ############################## INICIO DEL ARCHIVO: tests\activity.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import { Activity } from '../models/Activity.model';
+import mongoose from 'mongoose';
 
+describe('Endpoint de Actividad - /api/activity', () => {
+    let token: string;
+    let userId: string;
+    let projectId: string;
+
+    beforeEach(async () => {
+        const user = await new User({ name: 'Activity User', email: 'activity@test.com', password: 'password123' }).save();
+        userId = (user as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const loginRes = await request(app).post('/api/auth/login').send({ email: 'activity@test.com', password: 'password123' });
+        token = loginRes.body.token;
+
+        const project = await new Project({ 
+            name: 'Project for Activity', 
+            description: 'desc', 
+            color: 'blue', 
+            owner: userId, 
+            members: [{ user: userId, role: 'admin' }] 
+        }).save();
+        projectId = (project as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        await new Activity({ type: 'task_created', user: userId, project: projectId, text: 'User created a task' }).save();
+        await new Activity({ type: 'comment_added', user: userId, project: projectId, text: 'User added a comment' }).save();
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+        await Activity.deleteMany({});
+    });
+
+    it('GET /recent - debería obtener la actividad reciente de los proyectos del usuario', async () => {
+        const response = await request(app)
+            .get('/api/activity/recent')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+        
+        expect(response.body).toHaveLength(2);
+        expect(response.body[0].user.name).toBe('Activity User');
+    });
+
+    it('GET /recent - no debería obtener actividad de proyectos a los que el usuario no pertenece', async () => {
+        const otherProjectId = new mongoose.Types.ObjectId();
+        await new Activity({ type: 'task_created', user: userId, project: otherProjectId, text: 'Activity in other project' }).save();
+
+        const response = await request(app)
+            .get('/api/activity/recent')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body).toHaveLength(2);
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\activity.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\assistant.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
 
+describe('Endpoint del Asistente - /api/assistant', () => {
+    let token: string;
+
+    beforeEach(async () => {
+        await new User({ name: 'AI User', email: 'ai@test.com', password: 'password123' }).save();
+        const response = await request(app).post('/api/auth/login').send({ email: 'ai@test.com', password: 'password123' });
+        token = response.body.token;
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+    });
+
+    it('POST /chat - debería devolver la respuesta mockeada correctamente', async () => {
+        const history = [{ role: 'user', content: 'Hello' }];
+        const response = await request(app)
+            .post('/api/assistant/chat')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ history })
+            .expect(200);
+        
+        expect(response.body).toHaveProperty('response');
+        expect(response.body.response).toContain('Soy tu asistente Jello');
+    });
+
+    it('POST /chat - debería devolver un error 400 si no se envía el historial', async () => {
+        const response = await request(app)
+            .post('/api/assistant/chat')
+            .set('Authorization', `Bearer ${token}`)
+            .send({}) // Enviamos un cuerpo vacío
+            .expect(400);
+
+        expect(response.body.error).toBe('El historial es requerido y debe ser un array.');
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\assistant.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\auth.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+// Archivo: Jello-Backend/tests/auth.test.ts
 
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+
+// Describe agrupa un conjunto de pruebas relacionadas.
+describe('Endpoints de Autenticación - /api/auth', () => {
+
+    const testUser = {
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'password123',
+    };
+
+    // afterEach se ejecuta después de cada prueba en este bloque.
+    // Es crucial para limpiar la base de datos y asegurar que las pruebas no interfieran entre sí.
+    afterEach(async () => {
+        await User.deleteMany({});
+    });
+
+    // --- Pruebas para el endpoint de Registro ---
+    describe('POST /api/auth/register', () => {
+        it('debería registrar un nuevo usuario y devolver un token y datos del usuario', async () => {
+            const response = await request(app)
+                .post('/api/auth/register')
+                .send(testUser)
+                .expect(201); // Assert: Esperamos un código de estado 201 (Creado)
+
+            // Assert: Verificamos que la respuesta tenga la estructura correcta
+            expect(response.body).toHaveProperty('token');
+            expect(response.body.user.name).toBe(testUser.name);
+            expect(response.body.user.email).toBe(testUser.email);
+
+            // Assert: Verificamos que el usuario fue realmente guardado en la BD
+            const userInDb = await User.findOne({ email: testUser.email });
+            expect(userInDb).not.toBeNull();
+        });
+
+        it('debería devolver un error 400 si el email ya está en uso', async () => {
+            await new User(testUser).save(); // Arrange: Creamos un usuario primero
+
+            const response = await request(app)
+                .post('/api/auth/register')
+                .send(testUser)
+                .expect(400); // Assert: Esperamos un código de estado 400 (Bad Request)
+            
+            expect(response.body.error).toBe('El correo ya está en uso');
+        });
+    });
+
+    // --- Pruebas para el endpoint de Login ---
+    describe('POST /api/auth/login', () => {
+        // beforeEach se ejecuta antes de cada prueba en este bloque anidado.
+        // Aquí, nos aseguramos de que siempre exista un usuario para intentar hacer login.
+        beforeEach(async () => {
+            const user = new User(testUser);
+            await user.save();
+        });
+
+        it('debería iniciar sesión con credenciales correctas y devolver un token', async () => {
+            const response = await request(app)
+                .post('/api/auth/login')
+                .send({ email: testUser.email, password: testUser.password })
+                .expect(200); // Assert: Esperamos un código 200 (OK)
+
+            expect(response.body).toHaveProperty('token');
+            expect(response.body.user.email).toBe(testUser.email);
+        });
+
+        it('debería devolver un error 401 con una contraseña incorrecta', async () => {
+            const response = await request(app)
+                .post('/api/auth/login')
+                .send({ email: testUser.email, password: 'wrongpassword' })
+                .expect(401); // Assert: Esperamos un 401 (No autorizado)
+            
+            expect(response.body.error).toBe('Credenciales inválidas');
+        });
+
+        it('debería devolver un error 401 si el usuario no existe', async () => {
+            const response = await request(app)
+                .post('/api/auth/login')
+                .send({ email: 'nouser@example.com', password: 'password123' })
+                .expect(401); // Assert: Esperamos un 401 (No autorizado)
+
+            expect(response.body.error).toBe('Credenciales inválidas');
+        });
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\auth.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\comments.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import { Task } from '../models/Task.model';
+import { Comment } from '../models/Comment.model';
+
+describe('Endpoints de Comentarios', () => {
+    let tokenOwner: string;
+    let tokenMember: string;
+    let ownerId: string;
+    let memberId: string;
+    let projectId: string;
+    let taskId: string;
+
+    beforeEach(async () => {
+        const owner = await new User({ name: 'Owner', email: 'owner@test.com', password: 'password123' }).save();
+        const member = await new User({ name: 'Member', email: 'member@test.com', password: 'password123' }).save();
+        ownerId = (owner as any)._id.toString();   // CORRECCIÓN AQUÍ
+        memberId = (member as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const ownerLogin = await request(app).post('/api/auth/login').send({ email: 'owner@test.com', password: 'password123' });
+        tokenOwner = ownerLogin.body.token;
+        const memberLogin = await request(app).post('/api/auth/login').send({ email: 'member@test.com', password: 'password123' });
+        tokenMember = memberLogin.body.token;
+
+        const project = await new Project({ 
+            name: 'Project for Comments', 
+            description: 'desc', 
+            color: 'blue', 
+            owner: ownerId, 
+            members: [{ user: ownerId, role: 'admin' }, { user: memberId, role: 'member' }] 
+        }).save();
+        projectId = (project as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const task = await new Task({ title: 'Task for Comments', project: projectId }).save();
+        taskId = (task as any)._id.toString(); // CORRECCIÓN AQUÍ
+    });
+    
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+        await Task.deleteMany({});
+        await Comment.deleteMany({});
+    });
+
+    it('POST /api/tasks/:taskId/comments - debería permitir a un miembro del proyecto añadir un comentario', async () => {
+        const response = await request(app)
+            .post(`/api/tasks/${taskId}/comments`)
+            .set('Authorization', `Bearer ${tokenMember}`)
+            .send({ content: 'Este es un comentario de prueba' })
+            .expect(201);
+            
+        expect(response.body.content).toBe('Este es un comentario de prueba');
+        expect(response.body.author.id).toBe(memberId);
+    });
+    
+
+    it('DELETE /api/comments/:commentId - debería permitir a un usuario eliminar su propio comentario', async () => {
+        const comment = await new Comment({ content: 'A eliminar', author: memberId, task: taskId }).save();
+
+        await request(app)
+            .delete(`/api/comments/${comment._id}`)
+            .set('Authorization', `Bearer ${tokenMember}`)
+            .expect(204);
+
+        const commentInDb = await Comment.findById(comment._id);
+        expect(commentInDb).toBeNull();
+    });
+
+    it('DELETE /api/comments/:commentId - NO debería permitir a un usuario eliminar el comentario de otro', async () => {
+        const comment = await new Comment({ content: 'Comentario del owner', author: ownerId, task: taskId }).save();
+
+        await request(app)
+            .delete(`/api/comments/${comment._id}`)
+            .set('Authorization', `Bearer ${tokenMember}`) // Intenta eliminar como 'member'
+            .expect(403);
+    });
+    
+    it('DELETE /api/comments/:commentId - debería permitir al DUEÑO del proyecto eliminar cualquier comentario', async () => {
+        const comment = await new Comment({ content: 'Comentario del miembro', author: memberId, task: taskId }).save();
+
+        await request(app)
+            .delete(`/api/comments/${comment._id}`)
+            .set('Authorization', `Bearer ${tokenOwner}`) // Elimina como 'owner' del proyecto
+            .expect(204);
+            
+        const commentInDb = await Comment.findById(comment._id);
+        expect(commentInDb).toBeNull();
+    });
+});
+
+
 
 
 ############################## FIN DEL ARCHIVO: tests\comments.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\labels.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import { Label } from '../models/Label.model';
+import mongoose from 'mongoose';
 
+describe('Endpoints de Etiquetas (Labels)', () => {
+    let token: string;
+    let userId: string;
+    let projectId: string;
+
+    beforeEach(async () => {
+        const user = await new User({ name: 'Label User', email: 'label@test.com', password: 'password123' }).save();
+        userId = (user as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const loginRes = await request(app).post('/api/auth/login').send({ email: 'label@test.com', password: 'password123' });
+        token = loginRes.body.token;
+
+        const project = await new Project({ name: 'Project for Labels', description: 'desc', color: 'red', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+        projectId = (project as any)._id.toString(); // CORRECCIÓN AQUÍ
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+        await Label.deleteMany({});
+    });
+
+    it('POST /api/projects/:projectId/labels - debería crear una nueva etiqueta', async () => {
+        const labelData = { name: 'Bug', color: '#FF0000' };
+        const response = await request(app)
+            .post(`/api/projects/${projectId}/labels`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(labelData)
+            .expect(201);
+        
+        expect(response.body.name).toBe('Bug');
+        expect(response.body.color).toBe('#FF0000');
+    });
+
+    it('GET /api/projects/:projectId/labels - debería obtener todas las etiquetas de un proyecto', async () => {
+        await new Label({ name: 'Feature', color: '#00FF00', project: projectId }).save();
+        
+        const response = await request(app)
+            .get(`/api/projects/${projectId}/labels`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].name).toBe('Feature');
+    });
+
+    it('PUT /api/labels/:labelId - debería actualizar una etiqueta', async () => {
+        const label = await new Label({ name: 'Old Name', color: '#000000', project: projectId }).save();
+        
+        const response = await request(app)
+            .put(`/api/labels/${label._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: 'New Name', color: '#FFFFFF' })
+            .expect(200);
+
+        expect(response.body.name).toBe('New Name');
+    });
+
+    it('DELETE /api/labels/:labelId - debería eliminar una etiqueta', async () => {
+        const label = await new Label({ name: 'To Delete', color: '#000000', project: projectId }).save();
+
+        await request(app)
+            .delete(`/api/labels/${label._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200); // El controlador devuelve 200 con mensaje
+
+        const labelInDb = await Label.findById(label._id);
+        expect(labelInDb).toBeNull();
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\labels.test.ts ##################################
 
@@ -11833,22 +11635,258 @@ dotenv.config({ path: './.env' }); // Le decimos explícitamente dónde está el
 
 ############################## INICIO DEL ARCHIVO: tests\notifications.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import { Notification } from '../models/Notification.model';
+import mongoose from 'mongoose';
 
+describe('Endpoints de Notificaciones - /api/notifications', () => {
+    let tokenSender: string, tokenRecipient: string;
+    let senderId: string, recipientId: string;
+    let projectId: string;
+    let notificationId: string;
+
+    beforeEach(async () => {
+        const sender = await new User({ name: 'Sender', email: 'sender@test.com', password: 'password123' }).save();
+        const recipient = await new User({ name: 'Recipient', email: 'recipient@test.com', password: 'password123' }).save();
+        senderId = (sender as any)._id.toString();       // CORRECCIÓN AQUÍ
+        recipientId = (recipient as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const senderLogin = await request(app).post('/api/auth/login').send({ email: 'sender@test.com', password: 'password123' });
+        tokenSender = senderLogin.body.token;
+        const recipientLogin = await request(app).post('/api/auth/login').send({ email: 'recipient@test.com', password: 'password123' });
+        tokenRecipient = recipientLogin.body.token;
+
+        const project = await new Project({ name: 'Notification Project', description: 'desc', color: 'purple', owner: senderId, members: [{ user: senderId, role: 'admin' }] }).save();
+        projectId = (project as any)._id.toString(); // CORRECCIÓN AQUÍ
+        
+        const notification = await new Notification({ recipient: recipientId, sender: senderId, type: 'invitation', status: 'pending', project: projectId, text: 'invitacion', link: '/' }).save();
+        notificationId = (notification as any)._id.toString(); // CORRECCIÓN AQUÍ
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+        await Notification.deleteMany({});
+    });
+
+    it('GET / - debería obtener las notificaciones del usuario', async () => {
+        const response = await request(app)
+            .get('/api/notifications')
+            .set('Authorization', `Bearer ${tokenRecipient}`)
+            .expect(200);
+
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].recipient).toBe(recipientId);
+    });
+
+    it('PUT /:notificationId/respond - debería permitir aceptar una invitación', async () => {
+        await request(app)
+            .put(`/api/notifications/${notificationId}/respond`)
+            .set('Authorization', `Bearer ${tokenRecipient}`)
+            .send({ response: 'accepted' })
+            .expect(200);
+
+        const project = await Project.findById(projectId);
+        const isMember = project?.members.some(m => (m.user as any).equals(recipientId));
+        expect(isMember).toBe(true);
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\notifications.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\projects.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+// Archivo: Jello-Backend/tests/projects.test.ts
+import request from 'supertest';
+import app from '../index'; 
+import mongoose from 'mongoose';
+import { User } from '../models/User.model';
 
+describe('Endpoints de Proyectos - /api/projects', () => {
+    let token: string;
+    let userId: string;
+
+    beforeEach(async () => {
+        // Limpiamos la base de datos y creamos un usuario de prueba
+        await User.deleteMany({});
+        const userResponse = await request(app)
+            .post('/api/auth/register')
+            .send({ name: 'Test User', email: 'test@example.com', password: 'password123' });
+        
+        token = userResponse.body.token;
+        userId = userResponse.body.user.id;
+    });
+
+    afterEach(async () => {
+        await mongoose.connection.db.dropDatabase();
+    });
+
+    it('POST / - debería crear un nuevo proyecto si el usuario está autenticado', async () => {
+        const projectData = {
+            name: 'Nuevo Proyecto de Prueba',
+            description: 'Esta es una descripción de prueba.',
+            color: 'bg-blue-500'
+        };
+
+        // --- SECCIÓN MODIFICADA ---
+        // En lugar de enviar un campo 'data' con JSON, ahora enviamos cada
+        // propiedad del objeto 'projectData' como un campo separado.
+        // Esto simula correctamente un 'multipart/form-data' que el controlador espera.
+        const response = await request(app)
+            .post('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .field('name', projectData.name)
+            .field('description', projectData.description)
+            .field('color', projectData.color)
+            .expect(201); // Verificamos que el código de estado sea 201 (Created)
+
+        expect(response.body.name).toBe(projectData.name);
+        expect(response.body.isOwner).toBe(true);
+        expect(response.body.members).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ id: userId })
+            ])
+        );
+    });
+
+    it('GET / - debería devolver los proyectos del usuario autenticado', async () => {
+        // Primero creamos un proyecto para poder obtenerlo después
+        await request(app)
+            .post('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .field('name', 'Proyecto para GET')
+            .field('description', 'Desc GET')
+            .field('color', 'bg-red-500');
+
+        const response = await request(app)
+            .get('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body).toBeInstanceOf(Array);
+        expect(response.body.length).toBe(1);
+        expect(response.body[0].name).toBe('Proyecto para GET');
+    });
+
+    it('GET /:projectId - debería devolver detalles de un proyecto específico', async () => {
+        const createResponse = await request(app)
+            .post('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .field('name', 'Proyecto para GET por ID')
+            .field('description', 'Desc GET por ID')
+            .field('color', 'bg-green-500');
+
+        const projectId = createResponse.body.id;
+
+        const response = await request(app)
+            .get(`/api/projects/${projectId}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body.id).toBe(projectId);
+        expect(response.body.name).toBe('Proyecto para GET por ID');
+    });
+
+    it('PUT /:projectId - debería actualizar un proyecto', async () => {
+        const createResponse = await request(app)
+            .post('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .field('name', 'Proyecto a Actualizar')
+            .field('description', 'Desc Original')
+            .field('color', 'bg-yellow-500');
+
+        const projectId = createResponse.body.id;
+        const updatedData = { name: 'Proyecto Actualizado', description: 'Desc Actualizada' };
+
+        const response = await request(app)
+            .put(`/api/projects/${projectId}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(updatedData) // Para PUT no es necesario 'multipart', podemos enviar JSON
+            .expect(200);
+
+        expect(response.body.name).toBe(updatedData.name);
+        expect(response.body.description).toBe(updatedData.description);
+    });
+
+    it('DELETE /:projectId - debería eliminar un proyecto', async () => {
+        const createResponse = await request(app)
+            .post('/api/projects')
+            .set('Authorization', `Bearer ${token}`)
+            .field('name', 'Proyecto a Eliminar')
+            .field('description', 'Desc a Eliminar')
+            .field('color', 'bg-purple-500');
+
+        const projectId = createResponse.body.id;
+
+        await request(app)
+            .delete(`/api/projects/${projectId}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(204); // Verificamos que la respuesta sea 204 (No Content)
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\projects.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\search.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
 
+describe('Endpoint de Búsqueda - /api/search', () => {
+    let token: string;
+    let userId: string;
+
+    beforeEach(async () => {
+        const user = await new User({ name: 'Search User', email: 'search@test.com', password: 'password123' }).save();
+        userId = (user as any)._id.toString(); // CORRECCIÓN AQUÍ
+        
+        await new User({ name: 'John Doe', email: 'john@test.com', password: 'password123' }).save();
+
+        const loginRes = await request(app).post('/api/auth/login').send({ email: 'search@test.com', password: 'password123' });
+        token = loginRes.body.token;
+
+        await new Project({ name: 'Project Alpha', description: 'desc', color: 'red', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+    });
+
+    it('GET /?q=... - debería encontrar proyectos y usuarios que coincidan', async () => {
+        const response = await request(app)
+            .get('/api/search?q=John')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].type).toBe('user');
+        expect(response.body[0].name).toBe('John Doe');
+    });
+
+    it('GET /?q=...&type=project - debería filtrar por tipo de entidad', async () => {
+        const response = await request(app)
+            .get('/api/search?q=Pro&type=project')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].type).toBe('project');
+        expect(response.body[0].name).toBe('Project Alpha');
+    });
+
+    it('GET / - debería devolver un error 400 si no hay query de búsqueda', async () => {
+        await request(app)
+            .get('/api/search')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(400);
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\search.test.ts ##################################
 
@@ -11878,22 +11916,243 @@ afterAll(async () => {
 
 ############################## INICIO DEL ARCHIVO: tests\task.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Project } from '../models/Project.model';
+import { Task } from '../models/Task.model';
+import mongoose from 'mongoose';
 
+describe('Endpoints de Tareas - /api/tasks y /api/projects/:projectId/tasks', () => {
+    let token: string;
+    let userId: string;
+    let projectId: string;
+
+    beforeEach(async () => {
+        const user = await new User({ name: 'Task Test User', email: 'taskuser@test.com', password: 'password123' }).save();
+        userId = (user as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const loginResponse = await request(app).post('/api/auth/login').send({ email: 'taskuser@test.com', password: 'password123' });
+        token = loginResponse.body.token;
+
+        const project = await new Project({ name: 'Project for Tasks', description: 'desc', color: 'green', owner: userId, members: [{ user: userId, role: 'admin' }] }).save();
+        projectId = (project as any)._id.toString(); // CORRECCIÓN AQUÍ
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Project.deleteMany({});
+        await Task.deleteMany({});
+    });
+
+    it('POST /api/projects/:projectId/tasks - debería crear una nueva tarea en un proyecto', async () => {
+        const taskData = {
+            title: "Mi primera tarea de prueba",
+            project: projectId
+        };
+        const response = await request(app)
+            .post(`/api/projects/${projectId}/tasks`)
+            .set('Authorization', `Bearer ${token}`)
+            .send(taskData)
+            .expect(201);
+        
+        expect(response.body.title).toBe(taskData.title);
+        expect(response.body.projectId).toBe(projectId);
+    });
+
+    it('GET /api/tasks/:taskId - debería obtener los detalles de una tarea específica', async () => {
+        const task = await new Task({ title: 'Tarea para obtener', project: projectId }).save();
+
+        const response = await request(app)
+            .get(`/api/tasks/${(task as any)._id}`) // CORRECCIÓN AQUÍ
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body.title).toBe('Tarea para obtener');
+        expect(response.body.id).toBe((task as any)._id.toString());
+    });
+
+    it('PUT /api/projects/:projectId/tasks/:taskId - debería actualizar una tarea', async () => {
+        const task = await new Task({ title: 'Tarea para actualizar', project: projectId, status: 'todo' }).save();
+
+        const response = await request(app)
+            .put(`/api/projects/${projectId}/tasks/${task._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ status: 'in-progress' })
+            .expect(200);
+
+        expect(response.body.status).toBe('in-progress');
+    });
+
+    it('DELETE /api/projects/:projectId/tasks/:taskId - debería eliminar una tarea', async () => {
+        const task = await new Task({ title: 'Tarea para eliminar', project: projectId }).save();
+
+        await request(app)
+            .delete(`/api/projects/${projectId}/tasks/${task._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200); // El controlador devuelve 200 con mensaje
+
+        const taskInDb = await Task.findById(task._id);
+        expect(taskInDb).toBeNull();
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\task.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\todos.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
+import { Todo } from '../models/Todo.model';
 
+describe('Endpoints de Tareas Personales - /api/todos', () => {
+    let token: string;
+    let userId: string;
+
+    beforeEach(async () => {
+        const user = new User({ name: 'Todo User', email: 'todo@test.com', password: 'password123' });
+        const savedUser = await user.save();
+        userId = (savedUser as any)._id.toString(); // CORRECCIÓN AQUÍ
+
+        const response = await request(app)
+            .post('/api/auth/login')
+            .send({ email: 'todo@test.com', password: 'password123' });
+        token = response.body.token;
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+        await Todo.deleteMany({});
+    });
+
+    it('POST / - debería crear un nuevo todo para el usuario autenticado', async () => {
+        const todoData = { text: 'Comprar leche' };
+        const response = await request(app)
+            .post('/api/todos')
+            .set('Authorization', `Bearer ${token}`)
+            .send(todoData)
+            .expect(201);
+        
+        expect(response.body.text).toBe(todoData.text);
+        expect(response.body.owner).toBe(userId);
+    });
+
+    it('GET / - debería obtener la lista de todos del usuario', async () => {
+        await new Todo({ text: 'Pasear al perro', owner: userId }).save();
+        await new Todo({ text: 'Llamar al banco', owner: userId }).save();
+
+        const response = await request(app)
+            .get('/api/todos')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+        
+        expect(response.body).toHaveLength(2);
+    });
+
+    it('PUT /:todoId - debería actualizar un todo existente', async () => {
+        const todo = await new Todo({ text: 'Tarea inicial', completed: false, owner: userId }).save();
+
+        const response = await request(app)
+            .put(`/api/todos/${todo._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .send({ completed: true, text: 'Tarea actualizada' })
+            .expect(200);
+
+        expect(response.body.completed).toBe(true);
+        expect(response.body.text).toBe('Tarea actualizada');
+    });
+
+    it('DELETE /:todoId - debería eliminar un todo', async () => {
+        const todo = await new Todo({ text: 'Tarea a eliminar', owner: userId }).save();
+
+        await request(app)
+            .delete(`/api/todos/${todo._id}`)
+            .set('Authorization', `Bearer ${token}`)
+            .expect(204);
+
+        const todoInDb = await Todo.findById(todo._id);
+        expect(todoInDb).toBeNull();
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\todos.test.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: tests\user.test.ts ##############################
 
---- Contenido de archivo de prueba omitido intencionadamente ---
+import request from 'supertest';
+import { app } from '../index';
+import { User } from '../models/User.model';
 
+describe('Endpoints de Usuario - /api/user', () => {
+    let token: string;
+    let userId: string;
+
+    beforeEach(async () => {
+        const user = new User({
+            name: 'Profile User',
+            email: 'profile@test.com',
+            password: 'password123'
+        });
+        const savedUser = await user.save();
+        userId = (savedUser as any)._id.toString();
+
+        const response = await request(app)
+            .post('/api/auth/login')
+            .send({ email: 'profile@test.com', password: 'password123' });
+        
+        token = response.body.token;
+    });
+
+    afterEach(async () => {
+        await User.deleteMany({});
+    });
+
+    it('GET /me - debería obtener el perfil del usuario autenticado', async () => {
+        const response = await request(app)
+            .get('/api/user/me')
+            .set('Authorization', `Bearer ${token}`)
+            .expect(200);
+
+        expect(response.body.id).toBe(userId);
+        expect(response.body.email).toBe('profile@test.com');
+    });
+
+    it('PUT /profile - debería actualizar el perfil del usuario', async () => {
+        const updates = {
+            name: 'Profile User Updated',
+            bio: 'This is my new bio.',
+            skills: ['React', 'Node.js']
+        };
+
+        const response = await request(app)
+            .put('/api/user/profile')
+            .set('Authorization', `Bearer ${token}`)
+            .send(updates)
+            .expect(200);
+
+        expect(response.body.name).toBe('Profile User Updated');
+        expect(response.body.bio).toBe('This is my new bio.');
+        expect(response.body.skills).toEqual(['React', 'Node.js']);
+    });
+
+    it('POST /me/avatar - debería manejar la subida de un avatar en el entorno de prueba', async () => {
+        const buffer = Buffer.from('fake-image-data');
+        const filename = 'test-avatar.png';
+
+        const response = await request(app)
+            .post('/api/user/me/avatar')
+            .set('Authorization', `Bearer ${token}`)
+            .attach('file', buffer, filename)
+            .expect(200);
+
+        // Verificamos que la URL devuelta sea la que genera nuestra lógica de prueba en el controlador
+        expect(response.body.url).toBe(`https://fake.cloudinary.url/${filename}`);
+
+        const userInDb = await User.findById(userId);
+        expect(userInDb?.avatarUrl).toBe(`https://fake.cloudinary.url/${filename}`);
+    });
+});
 
 ############################## FIN DEL ARCHIVO: tests\user.test.ts ##################################
 

@@ -28,6 +28,13 @@ export interface ITask extends Document {
   dueDate?: Date;
 }
 
+const AttachmentSchema: Schema = new Schema({
+  name: { type: String, required: true },
+  url: { type: String, required: true },
+  size: { type: String },
+  type: { type: String, enum: ['image', 'document', 'other'] }
+});
+
 const TaskSchema: Schema<ITask> = new Schema({
   title: { type: String, required: true, trim: true },
   description: { type: String, default: '' },
@@ -37,7 +44,7 @@ const TaskSchema: Schema<ITask> = new Schema({
   assignees: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   labels: [{ type: Schema.Types.ObjectId, ref: 'Label' }],
   subtasks: [{ text: { type: String, required: true }, completed: { type: Boolean, default: false } }],
-  attachments: [{ name: String, url: String, size: String, type: String }],
+  attachments: [AttachmentSchema],
   dueDate: { type: Date },
 }, { timestamps: true });
 

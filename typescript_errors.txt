@@ -1,0 +1,19 @@
+Reporte de Errores de TypeScript para el proyecto: C:\Users\LAPTOP\Desktop\Work\Jello\Jello-Backend
+Generado el: 9/10/2025, 14:12:55
+================================================================================
+
+Listado de errores encontrados:
+
+controllers/task.controller.ts(2,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Task.model"' has no default export. Did you mean to use 'import { Task } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Task.model"' instead?
+controllers/task.controller.ts(3,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Project.model"' has no default export. Did you mean to use 'import { Project } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Project.model"' instead?
+controllers/task.controller.ts(4,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/User.model"' has no default export. Did you mean to use 'import { User } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/User.model"' instead?
+controllers/task.controller.ts(5,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Comment.model"' has no default export. Did you mean to use 'import { Comment } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Comment.model"' instead?
+controllers/task.controller.ts(57,13): error TS2322: Type '{ name: string; url: string; size: string; type: "image" | "document"; }[]' is not assignable to type 'IAttachment[]'.
+  Type '{ name: string; url: string; size: string; type: "image" | "document"; }' is missing the following properties from type 'IAttachment': $isSingleNested, ownerDocument, parent, $parent, and 54 more.
+controllers/task.controller.ts(94,37): error TS7006: Parameter 'task' implicitly has an 'any' type.
+controllers/task.controller.ts(104,45): error TS7006: Parameter 'st' implicitly has an 'any' type.
+controllers/task.controller.ts(238,11): error TS2740: Type '{ name: string; url: string; size: string; type: "image" | "document"; }' is missing the following properties from type 'IAttachment': $isSingleNested, ownerDocument, parent, $parent, and 54 more.
+routes/task.routes.ts(12,40): error TS2339: Property 'getAssignedTasks' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'.
+routes/task.routes.ts(22,49): error TS2339: Property 'addSubtask' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'.
+routes/task.routes.ts(23,59): error TS2551: Property 'updateSubtask' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'. Did you mean 'updateTask'?
+routes/task.routes.ts(24,62): error TS2551: Property 'deleteSubtask' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'. Did you mean 'deleteTask'?
