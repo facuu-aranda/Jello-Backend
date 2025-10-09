@@ -42,17 +42,17 @@ const formatTaskDetails = async (task: ITask) => {
 
 export const createTask = async (req: Request, res: Response) => {
     try {
-        const { projectId } = req.params; // <-- 1. Read from URL parameters
-        const { title, description, priority, status, dueDate, labels, assignees, subtasks } = req.body; // <-- 2. Remove projectId from here
+        const { projectId } = req.params;
+        const { title, description, priority, status, dueDate, labels, assignees } = req.body;
         const userId = (req.user as IJwtPayload).id;
         const userName = (req.user as any).name;
 
         const project = await Project.findById(projectId);
         if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
 
-        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : labels;
-        const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : assignees;
-
+        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : (labels || []);
+        const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : (assignees || []);
+        
         const attachments = (req.files as Express.Multer.File[])?.map(file => ({
             name: file.originalname,
             url: file.path,
@@ -60,16 +60,37 @@ export const createTask = async (req: Request, res: Response) => {
             type: file.mimetype.startsWith('image/') ? 'image' : 'document'
         })) || [];
 
+        // --- INICIO DE LA CORRECCIÓN ---
+        let subtaskItems: { text: string }[] = [];
+        const subtasksBody = req.body.subtasks;
+
+        if (typeof subtasksBody === 'string' && subtasksBody.length > 2) { // Mayor a 2 para evitar '[]' vacíos
+            try {
+                const parsedSubtasks = JSON.parse(subtasksBody);
+                if (Array.isArray(parsedSubtasks)) {
+                    subtaskItems = parsedSubtasks.map((text: string) => ({ text }));
+                }
+            } catch (e) {
+                console.error("Error al parsear subtasks:", e);
+                // Si falla el parseo, continuamos con un array vacío para no romper la creación.
+            }
+        }
+        // --- FIN DE LA CORRECCIÓN ---
+
         const newTask = new Task({
-            title, description, priority, status, dueDate, labels: parsedLabels, assignees,
-            subtasks: subtasks ? subtasks.map((text: string) => ({ text })) : [],
-            project: projectId, createdBy: userId,
-            attachments: attachments 
+            title, description, priority, status, dueDate,
+            labels: parsedLabels,
+            assignees: parsedAssignees,
+            subtasks: subtaskItems, // Usamos la variable segura
+            project: projectId,
+            createdBy: userId,
+            attachments: attachments
         });
+
         await newTask.save();
         
-        if (assignees && assignees.length > 0) {
-            for (const assigneeId of assignees) {
+        if (parsedAssignees && parsedAssignees.length > 0) {
+            for (const assigneeId of parsedAssignees) {
                 if (assigneeId.toString() !== userId.toString()) {
                     await new Notification({
                         recipient: assigneeId, sender: userId, type: 'task_assigned',
@@ -80,18 +101,18 @@ export const createTask = async (req: Request, res: Response) => {
             }
         }
 
-        // --- CORRECCIÓN AQUÍ ---
-      await createActivityLog({
-    type: 'task_created',
-    user: userId,
-    project: projectId,
-    task: (newTask as any)._id.toString(), // <-- CORRECTED LINE
-    text: `creó la tarea "${title}"`
-});
-
+        await createActivityLog({
+            type: 'task_created',
+            user: userId,
+            project: projectId,
+            task: (newTask as any)._id.toString(),
+            text: `creó la tarea "${title}"`
+        });
+        
         const formattedTask = await formatTaskDetails(newTask);
         res.status(201).json(formattedTask);
     } catch (error) {
+        console.error("Error al crear tarea:", error);
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
 };

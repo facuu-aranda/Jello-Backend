@@ -11,12 +11,9 @@ export const addAttachment = async (req: Request, res: Response) => {
         const { taskId } = req.params;
         const userId = (req.user as IJwtPayload).id;
 
-        // --- INICIO DE LA CORRECCIÓN ---
-        // 1. Validar que el archivo fue subido por multer
         if (!req.file) {
             return res.status(400).json({ error: "No se subió ningún archivo." });
         }
-        // --- FIN DE LA CORRECCIÓN ---
 
         const task = await Task.findById(taskId).populate('project');
         if (!task) {
@@ -28,12 +25,11 @@ export const addAttachment = async (req: Request, res: Response) => {
             return res.status(403).json({ error: "Acción no autorizada." });
         }
 
-        // --- INICIO DE LA CORRECCIÓN ---
-        // 2. Extraer datos del archivo subido (req.file) en lugar de req.body
         const { originalname, path, size, mimetype } = req.file;
 
+        // --- INICIO DE LA CORRECCIÓN ---
         const newAttachment = {
-            // _id: new mongoose.Types.ObjectId(), // <-- LÍNEA ELIMINADA
+            // NO creamos un _id aquí. Mongoose lo hará por nosotros.
             name: originalname,
             url: path,
             size: `${(size / 1024).toFixed(1)} KB`,
@@ -43,14 +39,16 @@ export const addAttachment = async (req: Request, res: Response) => {
         task.attachments.push(newAttachment as any);
         await task.save();
 
-        // Mongoose habrá añadido un _id, lo devolvemos buscando el último elemento.
+        // Buscamos el último adjunto añadido para devolverlo con el _id que Mongoose generó.
         const createdAttachment = task.attachments[task.attachments.length - 1];
         res.status(201).json(createdAttachment);
+        // --- FIN DE LA CORRECCIÓN ---
 
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
+
 
 // DELETE /api/tasks/:taskId/attachments/:attachmentId
 // (Esta función no necesita cambios)
