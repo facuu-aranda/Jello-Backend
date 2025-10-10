@@ -333,7 +333,7 @@ export const addMember = async (req: Request, res: Response) => {
         const newNotification = new Notification({
             recipient: memberToAdd._id,
             sender: sender.id,
-            type: 'invitation',
+            type: 'project_invitation',
             status: 'pending',
             project: projectId,
             text: `${sender.name} te ha invitado a unirte al proyecto "${project.name}".`,
