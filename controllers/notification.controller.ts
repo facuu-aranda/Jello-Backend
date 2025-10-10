@@ -73,6 +73,20 @@ export const respondToNotification = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Esta notificación ya ha sido respondida." });
         }
 
+        // --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
+        // Si la notificación tiene el tipo antiguo 'invitation', lo actualizamos al nuevo
+        // para que pase la validación al guardar.
+        if ((notification.type as string) === 'invitation') {
+            notification.type = 'project_invitation';
+        }
+        // Hacemos lo mismo para cualquier otro tipo antiguo que pudiera existir.
+        if ((notification.type as string) === 'comment') {
+            notification.type = 'new_comment';
+        }
+        if ((notification.type as string) === 'task_assignment') {
+            notification.type = 'task_assigned';
+        }
+
         const project = notification.project as any;
         const sender = notification.sender as any;
         type NotificationType = 'project_invitation' | 'collaboration_request' | 'invitation_accepted' | 'invitation_declined' | 'collaboration_accepted' | 'collaboration_declined';
