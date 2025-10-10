@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Comment } from '../models/Comment.model';
 import { Task } from '../models/Task.model';
+import { Notification } from '../models/Notification.model'; // <-- AÑADIDO
 import { IJwtPayload } from '../middleware/auth.middleware';
 import { createActivityLog } from '../services/activity.service';
 
@@ -19,21 +20,31 @@ export const addComment = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Tarea no encontrada.' });
     }
 
-    const newCommentData: any = {
-      content,
-      author: author.id,
-      task: taskId
-    };
-
-    if (req.file) {
-      newCommentData.attachmentUrl = req.file.path;
-    }
-
-    const newComment = new Comment(newCommentData);
+    const newComment = new Comment({ content, author: author.id, task: taskId });
     await newComment.save();
     
     const project = task.project as any;
-    // --- CORRECCIÓN AQUÍ ---
+
+    // --- INICIO DE LA LÓGICA DE NOTIFICACIÓN DE NUEVO COMENTARIO ---
+    const allMemberIds = project.members.map((m: any) => m.user.toString());
+    const notificationText = `${author.name} comentó en la tarea "${task.title}": "${content.substring(0, 50)}..."`;
+    
+    for (const memberId of allMemberIds) {
+      // No notificar al autor del comentario
+      if (memberId === author.id.toString()) continue;
+
+      await new Notification({
+        recipient: memberId,
+        sender: author.id,
+        type: 'new_comment',
+        status: 'info',
+        project: project._id,
+        task: task._id,
+        text: notificationText,
+        link: `/project/${project._id}?taskId=${task._id}`
+      }).save();
+    }
+
     await createActivityLog({
     type: 'comment_added',
     user: author.id,

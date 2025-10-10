@@ -29,7 +29,6 @@ Jello-Backend/
 │   ├── todo.controller.ts
 │   └── user.controller.ts
 ├── index.ts
-├── JelloBackendSummary.txt
 ├── jest.config.js
 ├── middleware
 │   └── auth.middleware.ts
@@ -80,7 +79,6 @@ Jello-Backend/
 ├── types
 │   └── express
 │       └── index.d.ts
-├── typescript_errors.txt
 └── __mocks__
     └── cloudinary.ts
 
@@ -685,21 +683,61 @@ export const deleteLabel = async (req: Request, res: Response) => {
 
 ############################## INICIO DEL ARCHIVO: controllers\notification.controller.ts ##############################
 
-// Archivo: Jello-Backend/controllers/notification.controller.ts
 import { Request, Response } from 'express';
 import { Notification } from '../models/Notification.model';
 import { Project } from '../models/Project.model';
 import { IJwtPayload } from '../middleware/auth.middleware';
 
+
+// GET /api/notifications
 export const getNotifications = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
+        const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
+
         const notifications = await Notification.find({ recipient: userId })
-            .sort({ createdAt: -1 }) 
-            .limit(30)
+            .sort({ createdAt: -1 })
+            .limit(limit) 
             .populate('sender', 'name avatarUrl')
             .populate('project', 'name');
+            
         res.json(notifications);
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// PUT /api/notifications/read
+export const markAllAsRead = async (req: Request, res: Response) => {
+    try {
+        const userId = (req.user as IJwtPayload).id;
+        await Notification.updateMany(
+            { recipient: userId, read: false },
+            { read: true }
+        );
+        res.status(200).json({ message: 'Notificaciones marcadas como leídas.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+    }
+};
+
+// PUT /api/notifications/:notificationId/read 
+export const markOneAsRead = async (req: Request, res: Response) => {
+    try {
+        const { notificationId } = req.params;
+        const userId = (req.user as IJwtPayload).id;
+
+        const notification = await Notification.findOneAndUpdate(
+            { _id: notificationId, recipient: userId },
+            { read: true },
+            { new: true }
+        );
+
+        if (!notification) {
+            return res.status(404).json({ message: "Notificación no encontrada o sin autorización." });
+        }
+
+        res.status(200).json(notification);
     } catch (error) {
         res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
     }
@@ -744,19 +782,6 @@ export const respondToNotification = async (req: Request, res: Response) => {
     }
 };
 
-export const markAsRead = async (req: Request, res: Response) => {
-    try {
-        const userId = (req.user as IJwtPayload).id;
-        await Notification.updateMany(
-            { recipient: userId, status: 'unread' },
-            { status: 'read' }
-        );
-        res.status(200).json({ message: 'Notificaciones marcadas como leídas.' });
-    } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
-    }
-};
-
 export const deleteNotification = async (req: Request, res: Response) => {
     try {
         const { notificationId } = req.params;
@@ -768,8 +793,6 @@ export const deleteNotification = async (req: Request, res: Response) => {
     }
 };
 
-// --- NUEVA FUNCIÓN AÑADIDA ---
-// Esta función maneja la lógica para crear una solicitud de colaboración.
 export const createCollaborationRequest = async (req: Request, res: Response) => {
     try {
         const { projectId, message } = req.body;
@@ -1976,7 +1999,8 @@ export const Label = mongoose.model<ILabel>('Label', LabelSchema);
 
 ############################## INICIO DEL ARCHIVO: models\Notification.model.ts ##############################
 
-// models/Notification.model.ts
+// Jello-Backend/models/Notification.model.ts
+
 import mongoose, { Schema, Document } from 'mongoose';
 import { IUser } from './User.model';
 import { IProject } from './Project.model';
@@ -1985,8 +2009,11 @@ import { ITask } from './Task.model';
 export interface INotification extends Document {
   recipient: IUser['_id'];
   sender: IUser['_id'];
-  type: 'invitation' | 'mention' | 'comment' | 'collaboration_request';
-  status: 'pending' | 'accepted' | 'declined' | 'read' | 'unread';
+  // MODIFICADO: Añadimos 'task_assignment' y 'generic' para consistencia
+  type: 'invitation' | 'mention' | 'comment' | 'collaboration_request' | 'task_assignment' | 'generic';
+  // El status es solo para notificaciones que requieren una acción
+  status: 'pending' | 'accepted' | 'declined';
+  read: boolean; // <-- Este es el campo correcto para leído/no leído
   project?: IProject['_id'];
   task?: ITask['_id'];
   text: string;
@@ -1998,14 +2025,16 @@ const NotificationSchema: Schema<INotification> = new Schema({
   sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   type: {
     type: String,
-    enum: ['invitation', 'mention', 'comment', 'collaboration_request'],
+    // MODIFICADO: Añadimos los nuevos tipos
+    enum: ['invitation', 'mention', 'comment', 'collaboration_request', 'task_assignment', 'generic'],
     required: true
   },
   status: {
     type: String,
-    enum: ['pending', 'accepted', 'declined', 'read', 'unread'],
-    required: true
+    enum: ['pending', 'accepted', 'declined'],
+    default: 'pending' // Es importante tener un default
   },
+  read: { type: Boolean, default: false }, // <-- Este es el campo clave
   project: { type: Schema.Types.ObjectId, ref: 'Project' },
   task: { type: Schema.Types.ObjectId, ref: 'Task' },
   text: { type: String, required: true },
@@ -10845,14 +10874,15 @@ export default router;
 
 ############################## INICIO DEL ARCHIVO: routes\notification.routes.ts ##############################
 
-// Archivo: Jello-Backend/routes/notification.routes.ts
+// Jello-Backend/routes/notification.routes.ts
 import { Router } from 'express';
 import { 
     getNotifications, 
     respondToNotification, 
-    markAsRead, 
+    markAllAsRead, // <-- Renombramos para claridad
+    markOneAsRead, // <-- NUEVO
     deleteNotification,
-    createCollaborationRequest // <-- 1. Importar la nueva función
+    createCollaborationRequest
 } from '../controllers/notification.controller';
 import authMiddleware from '../middleware/auth.middleware';
 
@@ -10860,12 +10890,10 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get('/', getNotifications);
-router.put('/read', markAsRead);
+router.put('/read', markAllAsRead); // Ruta para marcar todas
+router.put('/:notificationId/read', markOneAsRead); // NUEVA RUTA para marcar una
 router.put('/:notificationId/respond', respondToNotification);
 router.delete('/:notificationId', deleteNotification);
-
-// --- 2. NUEVA RUTA AÑADIDA ---
-// Se registra el endpoint POST que faltaba.
 router.post('/collaborate', createCollaborationRequest);
 
 export default router;
@@ -11441,31 +11469,6 @@ declare module 'express-serve-static-core' {
 }
 
 ############################## FIN DEL ARCHIVO: types\express\index.d.ts ##################################
-
-############################## INICIO DEL ARCHIVO: typescript_errors.txt ##############################
-
-Reporte de Errores de TypeScript para el proyecto: C:\Users\LAPTOP\Desktop\Work\Jello\Jello-Backend
-Generado el: 9/10/2025, 14:12:55
-================================================================================
-
-Listado de errores encontrados:
-
-controllers/task.controller.ts(2,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Task.model"' has no default export. Did you mean to use 'import { Task } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Task.model"' instead?
-controllers/task.controller.ts(3,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Project.model"' has no default export. Did you mean to use 'import { Project } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Project.model"' instead?
-controllers/task.controller.ts(4,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/User.model"' has no default export. Did you mean to use 'import { User } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/User.model"' instead?
-controllers/task.controller.ts(5,8): error TS2613: Module '"C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Comment.model"' has no default export. Did you mean to use 'import { Comment } from "C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/models/Comment.model"' instead?
-controllers/task.controller.ts(57,13): error TS2322: Type '{ name: string; url: string; size: string; type: "image" | "document"; }[]' is not assignable to type 'IAttachment[]'.
-  Type '{ name: string; url: string; size: string; type: "image" | "document"; }' is missing the following properties from type 'IAttachment': $isSingleNested, ownerDocument, parent, $parent, and 54 more.
-controllers/task.controller.ts(94,37): error TS7006: Parameter 'task' implicitly has an 'any' type.
-controllers/task.controller.ts(104,45): error TS7006: Parameter 'st' implicitly has an 'any' type.
-controllers/task.controller.ts(238,11): error TS2740: Type '{ name: string; url: string; size: string; type: "image" | "document"; }' is missing the following properties from type 'IAttachment': $isSingleNested, ownerDocument, parent, $parent, and 54 more.
-routes/task.routes.ts(12,40): error TS2339: Property 'getAssignedTasks' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'.
-routes/task.routes.ts(22,49): error TS2339: Property 'addSubtask' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'.
-routes/task.routes.ts(23,59): error TS2551: Property 'updateSubtask' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'. Did you mean 'updateTask'?
-routes/task.routes.ts(24,62): error TS2551: Property 'deleteSubtask' does not exist on type 'typeof import("C:/Users/LAPTOP/Desktop/Work/Jello/Jello-Backend/controllers/task.controller")'. Did you mean 'deleteTask'?
-
-
-############################## FIN DEL ARCHIVO: typescript_errors.txt ##################################
 
 ############################## INICIO DEL ARCHIVO: __mocks__\cloudinary.ts ##############################
 

@@ -5,7 +5,7 @@ import { IProject } from './Project.model';
 import { ITask } from './Task.model';
 
 export interface IActivity extends Document {
-  type: 'task_created' | 'comment_added' | 'user_joined' | 'task_status_changed';
+  type: 'task_created' | 'comment_added' | 'user_joined' | 'task_status_changed' | 'task_updated';
   user: IUser['_id'];
   project: IProject['_id'];
   task?: ITask['_id'];
@@ -18,7 +18,7 @@ export interface IActivity extends Document {
 const ActivitySchema: Schema<IActivity> = new Schema({
   type: {
     type: String,
-    enum: ['task_created', 'comment_added', 'user_joined', 'task_status_changed'],
+    enum: ['task_created', 'comment_added', 'user_joined', 'task_status_changed', 'task_updated'],
     required: true,
   },
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true },

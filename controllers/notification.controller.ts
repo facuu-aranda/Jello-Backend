@@ -1,4 +1,3 @@
-// Archivo: Jello-Backend/controllers/notification.controller.ts
 import { Request, Response } from 'express';
 import { Notification } from '../models/Notification.model';
 import { Project } from '../models/Project.model';
@@ -9,12 +8,11 @@ import { IJwtPayload } from '../middleware/auth.middleware';
 export const getNotifications = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        // NUEVO: Añadimos soporte para el query param 'limit'
         const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
 
         const notifications = await Notification.find({ recipient: userId })
             .sort({ createdAt: -1 })
-            .limit(limit) // Usamos el límite
+            .limit(limit) 
             .populate('sender', 'name avatarUrl')
             .populate('project', 'name');
             
@@ -24,11 +22,10 @@ export const getNotifications = async (req: Request, res: Response) => {
     }
 };
 
-// PUT /api/notifications/read (Marca todas como leídas)
+// PUT /api/notifications/read
 export const markAllAsRead = async (req: Request, res: Response) => {
     try {
         const userId = (req.user as IJwtPayload).id;
-        // CORREGIDO: Actualizamos el campo 'read' a 'true' donde sea 'false'
         await Notification.updateMany(
             { recipient: userId, read: false },
             { read: true }
@@ -39,7 +36,7 @@ export const markAllAsRead = async (req: Request, res: Response) => {
     }
 };
 
-// NUEVA FUNCIÓN: PUT /api/notifications/:notificationId/read (Marca una como leída)
+// PUT /api/notifications/:notificationId/read 
 export const markOneAsRead = async (req: Request, res: Response) => {
     try {
         const { notificationId } = req.params;
@@ -61,13 +58,14 @@ export const markOneAsRead = async (req: Request, res: Response) => {
     }
 };
 
+
 export const respondToNotification = async (req: Request, res: Response) => {
     try {
         const { notificationId } = req.params;
-        const { response } = req.body;
+        const { response } = req.body; // 'accepted' o 'declined'
         const currentUser = req.user as IJwtPayload;
 
-        const notification = await Notification.findById(notificationId);
+        const notification = await Notification.findById(notificationId).populate('project', 'name').populate('sender', 'name');
         if (!notification || (notification.recipient as any).toString() !== currentUser.id) {
             return res.status(403).json({ error: "Acción no autorizada." });
         }
@@ -75,30 +73,62 @@ export const respondToNotification = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Esta notificación ya ha sido respondida." });
         }
 
+        const project = notification.project as any;
+        const sender = notification.sender as any;
+        type NotificationType = 'project_invitation' | 'collaboration_request' | 'invitation_accepted' | 'invitation_declined' | 'collaboration_accepted' | 'collaboration_declined';
+        let responseNotificationType: NotificationType;
+        let responseText: string;
+
         if (response === 'accepted') {
+            notification.status = 'accepted';
             let userToAddId;
-            if (notification.type === 'invitation') {
+
+            if (notification.type === 'project_invitation') {
                 userToAddId = notification.recipient;
-            } else if (notification.type === 'collaboration_request') {
+                responseNotificationType = 'invitation_accepted';
+                responseText = `${currentUser.name} ha aceptado tu invitación para unirte al proyecto "${project.name}".`;
+            } else { // 'collaboration_request'
                 userToAddId = notification.sender;
+                responseNotificationType = 'collaboration_accepted';
+                responseText = `Tu solicitud para colaborar en el proyecto "${project.name}" ha sido aceptada.`;
             }
 
-            if (userToAddId && notification.project) {
-                await Project.findByIdAndUpdate(notification.project, {
+            if (userToAddId && project) {
+                await Project.findByIdAndUpdate(project._id, {
                     $addToSet: { members: { user: userToAddId, role: 'member' } }
                 });
             }
-            notification.status = 'accepted';
-        } else {
+        } else { // 'declined'
             notification.status = 'declined';
+            if (notification.type === 'project_invitation') {
+                responseNotificationType = 'invitation_declined';
+                responseText = `${currentUser.name} ha rechazado tu invitación al proyecto "${project.name}".`;
+            } else { // 'collaboration_request'
+                responseNotificationType = 'collaboration_declined';
+                responseText = `Tu solicitud para colaborar en el proyecto "${project.name}" ha sido rechazada.`;
+            }
         }
         
         await notification.save();
+
+        // --- INICIO DE LA LÓGICA DE NOTIFICACIÓN DE RESPUESTA ---
+        await new Notification({
+            recipient: sender._id,
+            sender: currentUser.id,
+            type: responseNotificationType,
+            status: 'info',
+            project: project._id,
+            text: responseText,
+            link: `/project/${project._id}`
+        }).save();
+        // --- FIN DE LA LÓGICA DE NOTIFICACIÓN DE RESPUESTA ---
+
         res.json(notification);
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
+
 
 export const deleteNotification = async (req: Request, res: Response) => {
     try {
@@ -111,8 +141,6 @@ export const deleteNotification = async (req: Request, res: Response) => {
     }
 };
 
-// --- NUEVA FUNCIÓN AÑADIDA ---
-// Esta función maneja la lógica para crear una solicitud de colaboración.
 export const createCollaborationRequest = async (req: Request, res: Response) => {
     try {
         const { projectId, message } = req.body;

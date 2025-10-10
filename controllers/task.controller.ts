@@ -1,4 +1,4 @@
-import { Request, Response, RequestHandler } from 'express';
+import { Request, Response } from 'express';
 import { Task, ITask } from '../models/Task.model';
 import { Project } from '../models/Project.model';
 import { Notification } from '../models/Notification.model';
@@ -45,14 +45,11 @@ export const createTask = async (req: Request, res: Response) => {
         const { projectId } = req.params;
         const { title, description, priority, status, dueDate, labels, assignees } = req.body;
         const userId = (req.user as IJwtPayload).id;
-        const userName = (req.user as any).name;
-
+        const userName = (req.user as IJwtPayload).name;
         const project = await Project.findById(projectId);
         if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
-
-        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : (labels || []);
         const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : (assignees || []);
-        
+        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : (labels || []);
         const attachments = (req.files as Express.Multer.File[])?.map(file => ({
             name: file.originalname,
             url: file.path,
@@ -60,11 +57,11 @@ export const createTask = async (req: Request, res: Response) => {
             type: file.mimetype.startsWith('image/') ? 'image' : 'document'
         })) || [];
 
-        // --- INICIO DE LA CORRECCIÓN ---
         let subtaskItems: { text: string }[] = [];
         const subtasksBody = req.body.subtasks;
 
-        if (typeof subtasksBody === 'string' && subtasksBody.length > 2) { // Mayor a 2 para evitar '[]' vacíos
+        if (typeof subtasksBody === 'string' && subtasksBody.length > 2) { 
+
             try {
                 const parsedSubtasks = JSON.parse(subtasksBody);
                 if (Array.isArray(parsedSubtasks)) {
@@ -72,32 +69,50 @@ export const createTask = async (req: Request, res: Response) => {
                 }
             } catch (e) {
                 console.error("Error al parsear subtasks:", e);
-                // Si falla el parseo, continuamos con un array vacío para no romper la creación.
             }
         }
-        // --- FIN DE LA CORRECCIÓN ---
 
         const newTask = new Task({
             title, description, priority, status, dueDate,
             labels: parsedLabels,
             assignees: parsedAssignees,
             subtasks: subtaskItems, // Usamos la variable segura
-            project: projectId,
+            project: project._id,
             createdBy: userId,
             attachments: attachments
         });
 
         await newTask.save();
         
-        if (parsedAssignees && parsedAssignees.length > 0) {
-            for (const assigneeId of parsedAssignees) {
-                if (assigneeId.toString() !== userId.toString()) {
-                    await new Notification({
-                        recipient: assigneeId, sender: userId, type: 'task_assigned',
-                        project: projectId, task: newTask._id,
-                        text: `${userName} te asignó la tarea "${title}" en el proyecto "${project.name}".`
-                    }).save();
-                }
+        
+        const allMemberIds = project.members.map(m => (m.user as any).toString());
+        const assigneeIds = parsedAssignees.map((id: string) => id.toString());
+
+        for (const memberId of allMemberIds) {
+            if (memberId === userId.toString()) continue;
+
+            if (assigneeIds.includes(memberId)) {
+                await new Notification({
+                    recipient: memberId,
+                    sender: userId,
+                    type: 'task_assigned',
+                    status: 'info',
+                    project: projectId,
+                    task: newTask._id,
+                    text: `${userName} te asignó la tarea "${title}" en el proyecto "${project.name}".`,
+                    link: `/project/${projectId}?taskId=${newTask._id}`
+                }).save();
+            } else {
+                await new Notification({
+                    recipient: memberId,
+                    sender: userId,
+                    type: 'task_created',
+                    status: 'info',
+                    project: projectId,
+                    task: newTask._id,
+                    text: `${userName} creó una nueva tarea: "${title}" en el proyecto "${project.name}".`,
+                    link: `/project/${projectId}?taskId=${newTask._id}`
+                }).save();
             }
         }
 
@@ -120,35 +135,53 @@ export const createTask = async (req: Request, res: Response) => {
 export const updateTask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
-        const { assignees, ...updateData } = req.body;
+        const { assignees } = req.body;
+        const updateData = req.body;
         const userId = (req.user as IJwtPayload).id;
-        const userName = (req.user as any).name;
+        const userName = (req.user as IJwtPayload).name;
 
-        const task = await Task.findById(taskId);
+        const task = await Task.findById(taskId).populate('project');
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
 
-        // --- CORRECCIÓN AQUÍ ---
+        const originalStatus = task.status;
+        const project = task.project as any;
+
         const originalAssignees = task.assignees.map(id => (id as any).toString());
 
         Object.assign(task, updateData);
         if (assignees !== undefined) task.assignees = assignees;
         await task.save();
 
-        if (assignees) {
-            const newAssignees = assignees.filter((id: string) => !originalAssignees.includes(id));
-            if (newAssignees.length > 0) {
-                const project = await Project.findById(task.project);
-                for (const assigneeId of newAssignees) {
-                     if (assigneeId.toString() !== userId.toString()) {
-                        await new Notification({
-                           recipient: assigneeId, sender: userId, type: 'task_assigned',
-                           project: task.project, task: task._id,
-                           text: `${userName} te asignó la tarea "${task.title}" en el proyecto "${(project as any)?.name}".`
-                        }).save();
-                    }
-                }
+        
+        if (updateData.status && originalStatus !== updateData.status) {
+            const allMemberIds = project.members.map((m: any) => m.user.toString());
+            const notificationText = `${userName} movió la tarea "${task.title}" a "${updateData.status}" en el proyecto "${project.name}".`;
+
+            for (const memberId of allMemberIds) {
+                // No notificar a quien hizo el cambio
+                if (memberId === userId.toString()) continue;
+
+                await new Notification({
+                    recipient: memberId,
+                    sender: userId,
+                    type: 'task_status_changed',
+                    status: 'info',
+                    project: project._id,
+                    task: task._id,
+                    text: notificationText,
+                    link: `/project/${project._id}?taskId=${task._id}`
+                }).save();
             }
         }
+
+
+       await createActivityLog({
+            type: 'task_updated',
+            user: userId,
+            project: project._id.toString(),
+            task: String(task._id),
+            text: `actualizó la tarea "${task.title}"`
+        });
         
         const formattedTask = await formatTaskDetails(task);
         res.json(formattedTask);
