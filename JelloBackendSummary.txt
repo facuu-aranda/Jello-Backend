@@ -499,6 +499,7 @@ export const login = async (req: Request, res: Response) => {
 import { Request, Response } from 'express';
 import { Comment } from '../models/Comment.model';
 import { Task } from '../models/Task.model';
+import { Notification } from '../models/Notification.model'; // <-- AÑADIDO
 import { IJwtPayload } from '../middleware/auth.middleware';
 import { createActivityLog } from '../services/activity.service';
 
@@ -517,21 +518,31 @@ export const addComment = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Tarea no encontrada.' });
     }
 
-    const newCommentData: any = {
-      content,
-      author: author.id,
-      task: taskId
-    };
-
-    if (req.file) {
-      newCommentData.attachmentUrl = req.file.path;
-    }
-
-    const newComment = new Comment(newCommentData);
+    const newComment = new Comment({ content, author: author.id, task: taskId });
     await newComment.save();
     
     const project = task.project as any;
-    // --- CORRECCIÓN AQUÍ ---
+
+    // --- INICIO DE LA LÓGICA DE NOTIFICACIÓN DE NUEVO COMENTARIO ---
+    const allMemberIds = project.members.map((m: any) => m.user.toString());
+    const notificationText = `${author.name} comentó en la tarea "${task.title}": "${content.substring(0, 50)}..."`;
+    
+    for (const memberId of allMemberIds) {
+      // No notificar al autor del comentario
+      if (memberId === author.id.toString()) continue;
+
+      await new Notification({
+        recipient: memberId,
+        sender: author.id,
+        type: 'new_comment',
+        status: 'info',
+        project: project._id,
+        task: task._id,
+        text: notificationText,
+        link: `/project/${project._id}?taskId=${task._id}`
+      }).save();
+    }
+
     await createActivityLog({
     type: 'comment_added',
     user: author.id,
@@ -743,13 +754,14 @@ export const markOneAsRead = async (req: Request, res: Response) => {
     }
 };
 
+
 export const respondToNotification = async (req: Request, res: Response) => {
     try {
         const { notificationId } = req.params;
-        const { response } = req.body;
+        const { response } = req.body; // 'accepted' o 'declined'
         const currentUser = req.user as IJwtPayload;
 
-        const notification = await Notification.findById(notificationId);
+        const notification = await Notification.findById(notificationId).populate('project', 'name').populate('sender', 'name');
         if (!notification || (notification.recipient as any).toString() !== currentUser.id) {
             return res.status(403).json({ error: "Acción no autorizada." });
         }
@@ -757,30 +769,76 @@ export const respondToNotification = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Esta notificación ya ha sido respondida." });
         }
 
+        // --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
+        // Si la notificación tiene el tipo antiguo 'invitation', lo actualizamos al nuevo
+        // para que pase la validación al guardar.
+        if ((notification.type as string) === 'invitation') {
+            notification.type = 'project_invitation';
+        }
+        // Hacemos lo mismo para cualquier otro tipo antiguo que pudiera existir.
+        if ((notification.type as string) === 'comment') {
+            notification.type = 'new_comment';
+        }
+        if ((notification.type as string) === 'task_assignment') {
+            notification.type = 'task_assigned';
+        }
+
+        const project = notification.project as any;
+        const sender = notification.sender as any;
+        type NotificationType = 'project_invitation' | 'collaboration_request' | 'invitation_accepted' | 'invitation_declined' | 'collaboration_accepted' | 'collaboration_declined';
+        let responseNotificationType: NotificationType;
+        let responseText: string;
+
         if (response === 'accepted') {
+            notification.status = 'accepted';
             let userToAddId;
-            if (notification.type === 'invitation') {
+
+            if (notification.type === 'project_invitation') {
                 userToAddId = notification.recipient;
-            } else if (notification.type === 'collaboration_request') {
+                responseNotificationType = 'invitation_accepted';
+                responseText = `${currentUser.name} ha aceptado tu invitación para unirte al proyecto "${project.name}".`;
+            } else { // 'collaboration_request'
                 userToAddId = notification.sender;
+                responseNotificationType = 'collaboration_accepted';
+                responseText = `Tu solicitud para colaborar en el proyecto "${project.name}" ha sido aceptada.`;
             }
 
-            if (userToAddId && notification.project) {
-                await Project.findByIdAndUpdate(notification.project, {
+            if (userToAddId && project) {
+                await Project.findByIdAndUpdate(project._id, {
                     $addToSet: { members: { user: userToAddId, role: 'member' } }
                 });
             }
-            notification.status = 'accepted';
-        } else {
+        } else { // 'declined'
             notification.status = 'declined';
+            if (notification.type === 'project_invitation') {
+                responseNotificationType = 'invitation_declined';
+                responseText = `${currentUser.name} ha rechazado tu invitación al proyecto "${project.name}".`;
+            } else { // 'collaboration_request'
+                responseNotificationType = 'collaboration_declined';
+                responseText = `Tu solicitud para colaborar en el proyecto "${project.name}" ha sido rechazada.`;
+            }
         }
         
         await notification.save();
+
+        // --- INICIO DE LA LÓGICA DE NOTIFICACIÓN DE RESPUESTA ---
+        await new Notification({
+            recipient: sender._id,
+            sender: currentUser.id,
+            type: responseNotificationType,
+            status: 'info',
+            project: project._id,
+            text: responseText,
+            link: `/project/${project._id}`
+        }).save();
+        // --- FIN DE LA LÓGICA DE NOTIFICACIÓN DE RESPUESTA ---
+
         res.json(notification);
     } catch (error) {
         res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
     }
 };
+
 
 export const deleteNotification = async (req: Request, res: Response) => {
     try {
@@ -1222,7 +1280,7 @@ export const addMember = async (req: Request, res: Response) => {
         const newNotification = new Notification({
             recipient: memberToAdd._id,
             sender: sender.id,
-            type: 'invitation',
+            type: 'project_invitation',
             status: 'pending',
             project: projectId,
             text: `${sender.name} te ha invitado a unirte al proyecto "${project.name}".`,
@@ -1313,7 +1371,7 @@ export const globalSearch = async (req: Request, res: Response) => {
 
 ############################## INICIO DEL ARCHIVO: controllers\task.controller.ts ##############################
 
-import { Request, Response, RequestHandler } from 'express';
+import { Request, Response } from 'express';
 import { Task, ITask } from '../models/Task.model';
 import { Project } from '../models/Project.model';
 import { Notification } from '../models/Notification.model';
@@ -1360,14 +1418,11 @@ export const createTask = async (req: Request, res: Response) => {
         const { projectId } = req.params;
         const { title, description, priority, status, dueDate, labels, assignees } = req.body;
         const userId = (req.user as IJwtPayload).id;
-        const userName = (req.user as any).name;
-
+        const userName = (req.user as IJwtPayload).name;
         const project = await Project.findById(projectId);
         if (!project) return res.status(404).json({ message: "Proyecto no encontrado" });
-
-        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : (labels || []);
         const parsedAssignees = assignees && typeof assignees === 'string' ? JSON.parse(assignees) : (assignees || []);
-        
+        const parsedLabels = labels && typeof labels === 'string' ? JSON.parse(labels) : (labels || []);
         const attachments = (req.files as Express.Multer.File[])?.map(file => ({
             name: file.originalname,
             url: file.path,
@@ -1375,11 +1430,11 @@ export const createTask = async (req: Request, res: Response) => {
             type: file.mimetype.startsWith('image/') ? 'image' : 'document'
         })) || [];
 
-        // --- INICIO DE LA CORRECCIÓN ---
         let subtaskItems: { text: string }[] = [];
         const subtasksBody = req.body.subtasks;
 
-        if (typeof subtasksBody === 'string' && subtasksBody.length > 2) { // Mayor a 2 para evitar '[]' vacíos
+        if (typeof subtasksBody === 'string' && subtasksBody.length > 2) { 
+
             try {
                 const parsedSubtasks = JSON.parse(subtasksBody);
                 if (Array.isArray(parsedSubtasks)) {
@@ -1387,32 +1442,50 @@ export const createTask = async (req: Request, res: Response) => {
                 }
             } catch (e) {
                 console.error("Error al parsear subtasks:", e);
-                // Si falla el parseo, continuamos con un array vacío para no romper la creación.
             }
         }
-        // --- FIN DE LA CORRECCIÓN ---
 
         const newTask = new Task({
             title, description, priority, status, dueDate,
             labels: parsedLabels,
             assignees: parsedAssignees,
             subtasks: subtaskItems, // Usamos la variable segura
-            project: projectId,
+            project: project._id,
             createdBy: userId,
             attachments: attachments
         });
 
         await newTask.save();
         
-        if (parsedAssignees && parsedAssignees.length > 0) {
-            for (const assigneeId of parsedAssignees) {
-                if (assigneeId.toString() !== userId.toString()) {
-                    await new Notification({
-                        recipient: assigneeId, sender: userId, type: 'task_assigned',
-                        project: projectId, task: newTask._id,
-                        text: `${userName} te asignó la tarea "${title}" en el proyecto "${project.name}".`
-                    }).save();
-                }
+        
+        const allMemberIds = project.members.map(m => (m.user as any).toString());
+        const assigneeIds = parsedAssignees.map((id: string) => id.toString());
+
+        for (const memberId of allMemberIds) {
+            if (memberId === userId.toString()) continue;
+
+            if (assigneeIds.includes(memberId)) {
+                await new Notification({
+                    recipient: memberId,
+                    sender: userId,
+                    type: 'task_assigned',
+                    status: 'info',
+                    project: projectId,
+                    task: newTask._id,
+                    text: `${userName} te asignó la tarea "${title}" en el proyecto "${project.name}".`,
+                    link: `/project/${projectId}?taskId=${newTask._id}`
+                }).save();
+            } else {
+                await new Notification({
+                    recipient: memberId,
+                    sender: userId,
+                    type: 'task_created',
+                    status: 'info',
+                    project: projectId,
+                    task: newTask._id,
+                    text: `${userName} creó una nueva tarea: "${title}" en el proyecto "${project.name}".`,
+                    link: `/project/${projectId}?taskId=${newTask._id}`
+                }).save();
             }
         }
 
@@ -1435,35 +1508,53 @@ export const createTask = async (req: Request, res: Response) => {
 export const updateTask = async (req: Request, res: Response) => {
     try {
         const { taskId } = req.params;
-        const { assignees, ...updateData } = req.body;
+        const { assignees } = req.body;
+        const updateData = req.body;
         const userId = (req.user as IJwtPayload).id;
-        const userName = (req.user as any).name;
+        const userName = (req.user as IJwtPayload).name;
 
-        const task = await Task.findById(taskId);
+        const task = await Task.findById(taskId).populate('project');
         if (!task) return res.status(404).json({ message: 'Tarea no encontrada.' });
 
-        // --- CORRECCIÓN AQUÍ ---
+        const originalStatus = task.status;
+        const project = task.project as any;
+
         const originalAssignees = task.assignees.map(id => (id as any).toString());
 
         Object.assign(task, updateData);
         if (assignees !== undefined) task.assignees = assignees;
         await task.save();
 
-        if (assignees) {
-            const newAssignees = assignees.filter((id: string) => !originalAssignees.includes(id));
-            if (newAssignees.length > 0) {
-                const project = await Project.findById(task.project);
-                for (const assigneeId of newAssignees) {
-                     if (assigneeId.toString() !== userId.toString()) {
-                        await new Notification({
-                           recipient: assigneeId, sender: userId, type: 'task_assigned',
-                           project: task.project, task: task._id,
-                           text: `${userName} te asignó la tarea "${task.title}" en el proyecto "${(project as any)?.name}".`
-                        }).save();
-                    }
-                }
+        
+        if (updateData.status && originalStatus !== updateData.status) {
+            const allMemberIds = project.members.map((m: any) => m.user.toString());
+            const notificationText = `${userName} movió la tarea "${task.title}" a "${updateData.status}" en el proyecto "${project.name}".`;
+
+            for (const memberId of allMemberIds) {
+                // No notificar a quien hizo el cambio
+                if (memberId === userId.toString()) continue;
+
+                await new Notification({
+                    recipient: memberId,
+                    sender: userId,
+                    type: 'task_status_changed',
+                    status: 'info',
+                    project: project._id,
+                    task: task._id,
+                    text: notificationText,
+                    link: `/project/${project._id}?taskId=${task._id}`
+                }).save();
             }
         }
+
+
+       await createActivityLog({
+            type: 'task_updated',
+            user: userId,
+            project: project._id.toString(),
+            task: String(task._id),
+            text: `actualizó la tarea "${task.title}"`
+        });
         
         const formattedTask = await formatTaskDetails(task);
         res.json(formattedTask);
@@ -1923,7 +2014,7 @@ import { IProject } from './Project.model';
 import { ITask } from './Task.model';
 
 export interface IActivity extends Document {
-  type: 'task_created' | 'comment_added' | 'user_joined' | 'task_status_changed';
+  type: 'task_created' | 'comment_added' | 'user_joined' | 'task_status_changed' | 'task_updated';
   user: IUser['_id'];
   project: IProject['_id'];
   task?: ITask['_id'];
@@ -1936,7 +2027,7 @@ export interface IActivity extends Document {
 const ActivitySchema: Schema<IActivity> = new Schema({
   type: {
     type: String,
-    enum: ['task_created', 'comment_added', 'user_joined', 'task_status_changed'],
+    enum: ['task_created', 'comment_added', 'user_joined', 'task_status_changed', 'task_updated'],
     required: true,
   },
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
@@ -2009,37 +2100,60 @@ import { ITask } from './Task.model';
 export interface INotification extends Document {
   recipient: IUser['_id'];
   sender: IUser['_id'];
-  // MODIFICADO: Añadimos 'task_assignment' y 'generic' para consistencia
-  type: 'invitation' | 'mention' | 'comment' | 'collaboration_request' | 'task_assignment' | 'generic';
-  // El status es solo para notificaciones que requieren una acción
-  status: 'pending' | 'accepted' | 'declined';
-  read: boolean; // <-- Este es el campo correcto para leído/no leído
+  // --- MODIFICADO: Añadimos y renombramos tipos para mayor claridad ---
+  type:
+    | 'project_invitation' // Antes 'invitation'
+    | 'collaboration_request'
+    | 'task_created' // NUEVO: Notificación general de tarea nueva
+    | 'task_assigned' // Antes 'task_assignment'
+    | 'task_status_changed' // NUEVO: Para cambios en el Kanban
+    | 'new_comment' // Antes 'comment'
+    | 'invitation_accepted' // NUEVO: Para notificar la respuesta
+    | 'invitation_declined' // NUEVO: Para notificar la respuesta
+    | 'collaboration_accepted' // NUEVO: Para notificar la respuesta
+    | 'collaboration_declined'; // NUEVO: Para notificar la respuesta
+  status: 'pending' | 'accepted' | 'declined' | 'info'; // 'info' para notificaciones no interactivas
+  read: boolean;
   project?: IProject['_id'];
   task?: ITask['_id'];
   text: string;
   link: string;
 }
 
-const NotificationSchema: Schema<INotification> = new Schema({
-  recipient: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  type: {
-    type: String,
-    // MODIFICADO: Añadimos los nuevos tipos
-    enum: ['invitation', 'mention', 'comment', 'collaboration_request', 'task_assignment', 'generic'],
-    required: true
+const NotificationSchema: Schema<INotification> = new Schema(
+  {
+    recipient: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    type: {
+      type: String,
+      // --- MODIFICADO: Actualizamos el enum ---
+      enum: [
+        'project_invitation',
+        'collaboration_request',
+        'task_created',
+        'task_assigned',
+        'task_status_changed',
+        'new_comment',
+        'invitation_accepted',
+        'invitation_declined',
+        'collaboration_accepted',
+        'collaboration_declined',
+      ],
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'declined', 'info'],
+      default: 'pending',
+    },
+    read: { type: Boolean, default: false },
+    project: { type: Schema.Types.ObjectId, ref: 'Project' },
+    task: { type: Schema.Types.ObjectId, ref: 'Task' },
+    text: { type: String, required: true },
+    link: { type: String, required: true },
   },
-  status: {
-    type: String,
-    enum: ['pending', 'accepted', 'declined'],
-    default: 'pending' // Es importante tener un default
-  },
-  read: { type: Boolean, default: false }, // <-- Este es el campo clave
-  project: { type: Schema.Types.ObjectId, ref: 'Project' },
-  task: { type: Schema.Types.ObjectId, ref: 'Task' },
-  text: { type: String, required: true },
-  link: { type: String, required: true },
-}, { timestamps: true });
+  { timestamps: true },
+);
 
 export const Notification = mongoose.model<INotification>('Notification', NotificationSchema);
 
@@ -10874,27 +10988,25 @@ export default router;
 
 ############################## INICIO DEL ARCHIVO: routes\notification.routes.ts ##############################
 
-// Jello-Backend/routes/notification.routes.ts
 import { Router } from 'express';
 import { 
     getNotifications, 
+    markAllAsRead, 
+    markOneAsRead, 
     respondToNotification, 
-    markAllAsRead, // <-- Renombramos para claridad
-    markOneAsRead, // <-- NUEVO
-    deleteNotification,
-    createCollaborationRequest
+    createCollaborationRequest, 
+    deleteNotification 
 } from '../controllers/notification.controller';
 import authMiddleware from '../middleware/auth.middleware';
 
 const router = Router();
-router.use(authMiddleware);
 
-router.get('/', getNotifications);
-router.put('/read', markAllAsRead); // Ruta para marcar todas
-router.put('/:notificationId/read', markOneAsRead); // NUEVA RUTA para marcar una
-router.put('/:notificationId/respond', respondToNotification);
-router.delete('/:notificationId', deleteNotification);
-router.post('/collaborate', createCollaborationRequest);
+router.get('/', authMiddleware, getNotifications);
+router.put('/read/all', authMiddleware, markAllAsRead);
+router.put('/:notificationId/read', authMiddleware, markOneAsRead);
+router.put('/:notificationId/respond', authMiddleware, respondToNotification);
+router.post('/request-collaboration', authMiddleware, createCollaborationRequest);
+router.delete('/:notificationId', authMiddleware, deleteNotification);
 
 export default router;
 

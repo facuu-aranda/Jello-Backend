@@ -83,3 +83,33 @@ export const deleteLabel = async (req: Request, res: Response) => {
         res.status(500).json({ message: "Error en el servidor", error: (error as Error).message });
     }
 };
+
+
+export const batchUpdateLabels = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const { add, delete: deleteIds } = req.body; 
+        const user = req.user as IJwtPayload;
+
+        const project = await checkMembership(projectId, user.id);
+        if (!project) return res.status(403).json({ error: "Acción no autorizada." });
+
+        if (deleteIds && deleteIds.length > 0) {
+            await Label.deleteMany({ _id: { $in: deleteIds }, project: projectId });
+            await Task.updateMany({ project: projectId }, { $pull: { labels: { $in: deleteIds } } });
+        }
+
+        if (add && add.length > 0) {
+            const newLabels = add.map((label: { name: string, color: string }) => ({
+                ...label,
+                project: projectId,
+            }));
+            await Label.insertMany(newLabels);
+        }
+
+        res.status(200).json({ message: "Labels actualizados correctamente." });
+
+    } catch (error) {
+        res.status(500).json({ error: "Error en el servidor", details: (error as Error).message });
+    }
+};

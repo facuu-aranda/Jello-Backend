@@ -12,6 +12,8 @@ router.get('/projects/:projectId/labels', labelController.getLabelsForProject);
 
 router.put('/labels/:labelId', labelController.updateLabel);
 
+router.put('/projects/:projectId/labels/batch', labelController.batchUpdateLabels);
+
 router.delete('/labels/:labelId', labelController.deleteLabel);
 
 export default router;
