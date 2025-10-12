@@ -15,7 +15,7 @@ const router = Router();
 router.get('/', authMiddleware, getNotifications);
 router.put('/read/all', authMiddleware, markAllAsRead);
 router.put('/:notificationId/read', authMiddleware, markOneAsRead);
-router.put('/notifications/:notificationId/unread', authMiddleware, markAsUnread); 
+router.put('/:notificationId/unread', authMiddleware, markAsUnread); 
 router.put('/:notificationId/respond', authMiddleware, respondToNotification);
 router.post('/request-collaboration', authMiddleware, createCollaborationRequest);
 router.delete('/:notificationId', authMiddleware, deleteNotification);

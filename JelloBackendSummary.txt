@@ -690,6 +690,36 @@ export const deleteLabel = async (req: Request, res: Response) => {
     }
 };
 
+
+export const batchUpdateLabels = async (req: Request, res: Response) => {
+    try {
+        const { projectId } = req.params;
+        const { add, delete: deleteIds } = req.body; 
+        const user = req.user as IJwtPayload;
+
+        const project = await checkMembership(projectId, user.id);
+        if (!project) return res.status(403).json({ error: "Acción no autorizada." });
+
+        if (deleteIds && deleteIds.length > 0) {
+            await Label.deleteMany({ _id: { $in: deleteIds }, project: projectId });
+            await Task.updateMany({ project: projectId }, { $pull: { labels: { $in: deleteIds } } });
+        }
+
+        if (add && add.length > 0) {
+            const newLabels = add.map((label: { name: string, color: string }) => ({
+                ...label,
+                project: projectId,
+            }));
+            await Label.insertMany(newLabels);
+        }
+
+        res.status(200).json({ message: "Labels actualizados correctamente." });
+
+    } catch (error) {
+        res.status(500).json({ error: "Error en el servidor", details: (error as Error).message });
+    }
+};
+
 ############################## FIN DEL ARCHIVO: controllers\label.controller.ts ##################################
 
 ############################## INICIO DEL ARCHIVO: controllers\notification.controller.ts ##############################
@@ -703,18 +733,27 @@ import { IJwtPayload } from '../middleware/auth.middleware';
 // GET /api/notifications
 export const getNotifications = async (req: Request, res: Response) => {
     try {
-        const userId = (req.user as IJwtPayload).id;
-        const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
+        const user = req.user as IJwtPayload;
+        // Obtenemos los parámetros de paginación de la query
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const skip = (page - 1) * limit;
 
-        const notifications = await Notification.find({ recipient: userId })
+        const notifications = await Notification.find({ recipient: user.id })
             .sort({ createdAt: -1 })
-            .limit(limit) 
-            .populate('sender', 'name avatarUrl')
-            .populate('project', 'name');
-            
-        res.json(notifications);
+            .skip(skip) // Saltar documentos
+            .limit(limit) // Limitar resultados
+            .populate('sender', 'name avatar');
+
+        const total = await Notification.countDocuments({ recipient: user.id });
+
+        res.status(200).json({
+            notifications,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+        res.status(500).json({ error: "Error en el servidor." });
     }
 };
 
@@ -754,6 +793,21 @@ export const markOneAsRead = async (req: Request, res: Response) => {
     }
 };
 
+export const markAsUnread = async (req: Request, res: Response) => {
+    try {
+        const { notificationId } = req.params;
+        const user = req.user as IJwtPayload;
+        const notification = await Notification.findOneAndUpdate(
+            { _id: notificationId, recipient: user.id },
+            { read: false },
+            { new: true }
+        );
+        if (!notification) return res.status(404).json({ error: "Notificación no encontrada." });
+        res.status(200).json(notification);
+    } catch (error) {
+        res.status(500).json({ error: "Error en el servidor." });
+    }
+};
 
 export const respondToNotification = async (req: Request, res: Response) => {
     try {
@@ -10980,6 +11034,8 @@ router.get('/projects/:projectId/labels', labelController.getLabelsForProject);
 
 router.put('/labels/:labelId', labelController.updateLabel);
 
+router.put('/projects/:projectId/labels/batch', labelController.batchUpdateLabels);
+
 router.delete('/labels/:labelId', labelController.deleteLabel);
 
 export default router;
@@ -10992,6 +11048,7 @@ import { Router } from 'express';
 import { 
     getNotifications, 
     markAllAsRead, 
+    markAsUnread,
     markOneAsRead, 
     respondToNotification, 
     createCollaborationRequest, 
@@ -11004,6 +11061,7 @@ const router = Router();
 router.get('/', authMiddleware, getNotifications);
 router.put('/read/all', authMiddleware, markAllAsRead);
 router.put('/:notificationId/read', authMiddleware, markOneAsRead);
+router.put('/notifications/:notificationId/unread', authMiddleware, markAsUnread); 
 router.put('/:notificationId/respond', authMiddleware, respondToNotification);
 router.post('/request-collaboration', authMiddleware, createCollaborationRequest);
 router.delete('/:notificationId', authMiddleware, deleteNotification);
