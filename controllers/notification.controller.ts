@@ -7,18 +7,27 @@ import { IJwtPayload } from '../middleware/auth.middleware';
 // GET /api/notifications
 export const getNotifications = async (req: Request, res: Response) => {
     try {
-        const userId = (req.user as IJwtPayload).id;
-        const limit = req.query.limit ? parseInt(req.query.limit as string) : 30;
+        const user = req.user as IJwtPayload;
+        // Obtenemos los parámetros de paginación de la query
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const skip = (page - 1) * limit;
 
-        const notifications = await Notification.find({ recipient: userId })
+        const notifications = await Notification.find({ recipient: user.id })
             .sort({ createdAt: -1 })
-            .limit(limit) 
-            .populate('sender', 'name avatarUrl')
-            .populate('project', 'name');
-            
-        res.json(notifications);
+            .skip(skip) // Saltar documentos
+            .limit(limit) // Limitar resultados
+            .populate('sender', 'name avatar');
+
+        const total = await Notification.countDocuments({ recipient: user.id });
+
+        res.status(200).json({
+            notifications,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+        });
     } catch (error) {
-        res.status(500).json({ message: 'Error en el servidor', error: (error as Error).message });
+        res.status(500).json({ error: "Error en el servidor." });
     }
 };
 
@@ -58,6 +67,21 @@ export const markOneAsRead = async (req: Request, res: Response) => {
     }
 };
 
+export const markAsUnread = async (req: Request, res: Response) => {
+    try {
+        const { notificationId } = req.params;
+        const user = req.user as IJwtPayload;
+        const notification = await Notification.findOneAndUpdate(
+            { _id: notificationId, recipient: user.id },
+            { read: false },
+            { new: true }
+        );
+        if (!notification) return res.status(404).json({ error: "Notificación no encontrada." });
+        res.status(200).json(notification);
+    } catch (error) {
+        res.status(500).json({ error: "Error en el servidor." });
+    }
+};
 
 export const respondToNotification = async (req: Request, res: Response) => {
     try {
