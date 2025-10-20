@@ -40,6 +40,11 @@ router.post('/register', authController.register);
 // POST /api/auth/login
 router.post('/login', authController.login);
 
+// GET /api/auth/verify/:token
+router.get('/verify/:token', authController.verifyEmail);
+
+// POST /api/auth/resend-verification
+router.post('/resend-verification', authController.resendVerificationEmail);
 // CORRECCIÓN: Se eliminan las rutas a controladores que no existen.
 // Las funciones 'forgotPassword' y 'resetPassword' no están definidas en auth.controller.ts.
 // router.post('/forgot-password', authController.forgotPassword);

@@ -34,7 +34,6 @@ const NotificationSchema: Schema<INotification> = new Schema(
     sender: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: {
       type: String,
-      // --- MODIFICADO: Actualizamos el enum ---
       enum: [
         'project_invitation',
         'collaboration_request',

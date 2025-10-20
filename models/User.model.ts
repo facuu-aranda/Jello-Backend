@@ -29,9 +29,11 @@ export interface IUser extends Document {
   jobTitle: string | null;
   timezone: string | null;
   skills: string[];
-  settings?: IUserSettings; // <-- NUEVO CAMPO
+  settings?: IUserSettings; 
   passwordResetToken?: string;
-  passwordResetExpires?: Date;
+  passwordResetExpires?: Date;isVerified: boolean;
+  verificationToken?: string;
+  verificationTokenExpires?: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
 
@@ -47,6 +49,10 @@ const UserSchema: Schema<IUser> = new Schema({
   jobTitle: { type: String, default: null },
   timezone: { type: String, default: null },
   skills: { type: [String], default: [] },
+
+  isVerified: { type: Boolean, default: false },
+  verificationToken: { type: String, select: false },
+  verificationTokenExpires: { type: Date, select: false },
   
   settings: {
     notifications: {
