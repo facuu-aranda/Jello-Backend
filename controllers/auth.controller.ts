@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { User, IUser } from '../models/User.model';
 import jwt from 'jsonwebtoken'; import crypto from 'crypto';
-import { sendVerificationEmail } from '../services/email.service';
+import { sendVerificationEmail, sendPasswordResetEmail } from '../services/email.service';
 
 // POST /api/auth/register
 export const register = async (req: Request, res: Response) => {
@@ -49,13 +49,11 @@ export const register = async (req: Request, res: Response) => {
 export const login = async (req: Request, res: Response) => {
   try {
     const { email, password, rememberMe = false } = req.body;
-    const user = await User.findOne({ email }).select('+password');
+    // Buscamos al usuario y pedimos explícitamente los campos de verificación
+    const user = await User.findOne({ email }).select('+password +isVerified +verificationTokenExpires');
 
     if (!user || !user.password) {
       return res.status(401).json({ error: 'Credenciales inválidas' });
-    }
-    if (!user.isVerified) {
-      return res.status(403).json({ error: 'Por favor, verifica tu correo electrónico antes de iniciar sesión.' });
     }
 
     const isMatch = await user.comparePassword(password);
@@ -63,23 +61,51 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
+    // --- LÓGICA DE VERIFICACIÓN MEJORADA ---
+    if (!user.isVerified) {
+      // Comprobamos si hay un token de verificación activo
+      const now = new Date();
+      if (user.verificationTokenExpires && user.verificationTokenExpires > now) {
+        // Si hay un token activo, simplemente le recordamos al usuario que verifique
+        return res.status(403).json({ 
+          error: 'Tu cuenta no está verificada. Por favor, revisa tu correo electrónico.' 
+        });
+      }
+
+      // Si no hay token o ha expirado, generamos y enviamos uno nuevo.
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      user.verificationToken = crypto
+        .createHash('sha256')
+        .update(verificationToken)
+        .digest('hex');
+      user.verificationTokenExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
+      
+      await user.save();
+      await sendVerificationEmail(user.email, verificationToken);
+
+      return res.status(403).json({ 
+        error: 'Tu cuenta no está verificada. Te hemos enviado un nuevo correo de activación.' 
+      });
+    }
+    // --- FIN DE LA LÓGICA MEJORADA ---
+
     const payload = { id: user._id, name: user.name };
     const expiresIn = rememberMe ? '7d' : '48h';
     const token = jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn });
 
     const userProfile = {
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      avatarUrl: user.avatarUrl,
-      bannerUrl: user.bannerUrl,
-      title: user.jobTitle,
-      bio: user.bio,
-      timezone: user.timezone,
-      skills: user.skills,
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        bannerUrl: user.bannerUrl,
+        title: user.jobTitle,
+        bio: user.bio,
+        timezone: user.timezone,
+        skills: user.skills,
     };
-
     res.json({ token, user: userProfile });
+
   } catch (error) {
     res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
   }
@@ -161,5 +187,79 @@ export const resendVerificationEmail = async (req: Request, res: Response) => {
 
   } catch (error) {
     res.status(500).json({ error: 'Error en el servidor', details: (error as Error).message });
+  }
+};
+
+// POST /api/auth/forgot-password
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+
+    // Por seguridad, siempre enviamos una respuesta positiva para no revelar si un usuario existe.
+    if (!user) {
+      return res.status(200).json({ message: 'Si tu correo está en nuestra base de datos, recibirás un enlace para restablecer tu contraseña.' });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+
+    user.passwordResetToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+    
+    user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000); // Válido por 10 min
+
+    await user.save();
+
+    try {
+      await sendPasswordResetEmail(user.email, resetToken);
+      res.status(200).json({ message: 'Si tu correo está en nuestra base de datos, recibirás un enlace para restablecer tu contraseña.' });
+    } catch (error) {
+      // Limpiamos los tokens si el email falla para que el usuario pueda reintentar
+      user.passwordResetToken = undefined;
+      user.passwordResetExpires = undefined;
+      await user.save();
+      return res.status(500).json({ error: 'No se pudo enviar el correo de restablecimiento.' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+};
+
+
+// PUT /api/auth/reset-password/:token
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'El token es inválido o ha expirado.' });
+    }
+
+    // Actualizamos la contraseña y dejamos que el hook `pre.save` la hashee
+    user.password = password;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+
+    await user.save();
+    
+    // Opcional: podrías loguear al usuario aquí generando un JWT.
+    // Por ahora, solo confirmamos el cambio.
+    res.status(200).json({ message: 'Tu contraseña ha sido restablecida con éxito.' });
+
+  } catch (error) {
+    res.status(500).json({ error: 'Error en el servidor' });
   }
 };

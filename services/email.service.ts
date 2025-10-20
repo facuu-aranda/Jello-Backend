@@ -27,3 +27,27 @@ export const sendVerificationEmail = async (email: string, token: string) => {
     throw new Error('Error al enviar el correo a través de la API de Resend.');
   }
 };
+
+export const sendPasswordResetEmail = async (email: string, token: string) => {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${token}`;
+
+  try {
+    await resend.emails.send({
+      from: `Jello App <hola@jello-app.online>`,
+      to: email,
+      subject: 'Restablece tu contraseña de Jello',
+      html: `
+        <h1>¿Olvidaste tu contraseña?</h1>
+        <p>Recibimos una solicitud para restablecer tu contraseña. Haz clic en el siguiente enlace para continuar:</p>
+        <a href="${resetUrl}" style="background-color: #f44336; color: white; padding: 14px 25px; text-align: center; text-decoration: none; display: inline-block;">
+          Restablecer Contraseña
+        </a>
+        <p>El enlace es válido por 10 minutos.</p>
+        <p>Si no solicitaste esto, por favor ignora este mensaje.</p>
+      `,
+    });
+  } catch (error) {
+    console.error("Error al enviar email de reseteo con Resend:", error);
+    throw new Error('Error al enviar el correo de reseteo.');
+  }
+};
