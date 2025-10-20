@@ -3,13 +3,14 @@ import { Resend } from 'resend';
 
 // Resend se inicializará automáticamente con la variable de entorno RESEND_API_KEY
 const resend = new Resend(process.env.RESEND_API_KEY);
+console.log('Initializing Resend with API Key:', process.env.RESEND_API_KEY ? `re_...${process.env.RESEND_API_KEY.slice(-4)}` : 'UNDEFINED or EMPTY');
 
 export const sendVerificationEmail = async (email: string, token: string) => {
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
 
   try {
     await resend.emails.send({
-      from: `Jelli Register Assistant <register@jello-app.online>`, // Usa un correo de tu dominio verificado
+      from: `Jelli Register Assistant <register@jello-app.online>`, 
       to: email,
       subject: 'Verifica tu cuenta en Jello',
       html: `
